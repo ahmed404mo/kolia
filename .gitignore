@@ -1,10 +1,39 @@
-# Node modules
-node_modules/
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
 
-# Next.js build files
-.next/
+# Testing
+/coverage
 
-# Lock files (if you want)
-pnpm-lock.yaml
-package-lock.json
-yarn.lock
+# Next.js
+/.next/
+/out/
+
+# Production
+/build
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment Variables
+# 🔥 مهم جداً: لا ترفع بيانات الداتابيز لـ GitHub
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Vercel
+.vercel
+
+# Prisma
+# لو بتستخدم SQLite (ملف dev.db)، السطر ده بيمنع رفعه
+*.db
+*.db-journal
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
