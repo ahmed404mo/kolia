@@ -205,12 +205,21 @@ export default function StudentDashboard() {
                 <div className="relative w-full max-w-[320px] aspect-square bg-black rounded-[2.5rem] overflow-hidden shadow-2xl border border-zinc-800 ring-4 ring-zinc-900/50">
                     {!scanResult ? (
                         <>
-                            <Scanner 
-                                key="qr-scanner"
-                                onScan={(detected) => detected[0]?.rawValue && handleScan(detected[0].rawValue)}
-                                styles={{ container: { width: '100%', height: '100%', borderRadius: '2.5rem' } }}
-                                components={{ audio: false, finder: false }}
-                            />
+<Scanner 
+    onScan={(result) => result[0] && handleScan(result[0].rawValue)}
+    // الإعدادات دي بتخلي الأيفون يعرض الكاميرا جوه الصفحة مش كفيديو منفصل
+    styles={{ 
+        container: { width: '100%', height: '100%', borderRadius: '2.5rem' },
+        video: { objectFit: 'cover' } 
+    }}
+    components={{ 
+        audio: false, // بلاش صوت عشان Safari ساعات بيعمل بلوك بسببه
+        finder: false 
+    }}
+    options={{
+        delayBetweenScans: 3000 // بلاش يمسح بسرعة ورا بعض
+    }}
+/>
                             
                             <div className="absolute inset-0 pointer-events-none">
                                 <div className="absolute top-6 left-6 w-8 h-8 border-t-4 border-l-4 border-indigo-500 rounded-tl-xl opacity-80"></div>
