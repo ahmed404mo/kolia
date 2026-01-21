@@ -7,6 +7,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "EasyAttend | نظام الحضور الذكي",
   description: "نظام تسجيل الحضور باستخدام QR Code والموقع الجغرافي",
+  icons: {
+    icon: "/icon.png", // تأكد أن المسار مطابق لاسم ملفك
+  },
 };
 
 export default function RootLayout({
