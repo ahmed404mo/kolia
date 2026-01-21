@@ -152,32 +152,50 @@ export default function Dashboard() {
     window.location.replace("/login?out=true"); 
   };
   
-  const startLecture = async () => {
-    if (!selectedSubject) return showNotify("يرجى اختيار المادة", "error");
-    const subjectObj = subjects.find(s => s.id === selectedSubject);
-    let finalTopic = subjectObj?.name;
-    if (subjectObj?.isElective) {
-        if(!electiveName) return showNotify("اسم المقرر مطلوب", "error");
-        finalTopic = electiveName;
-    }
-    const typeLabel = lectureType === 'SECTION' ? '(سكشن)' : lectureType === 'ONLINE' ? '(أونلاين)' : '(محاضرة)';
-    finalTopic = `${finalTopic} ${typeLabel}`;
-    setLoading(true);
-    try {
+// ابحث عن دالة startLecture واستبدلها بهذا الجزء
+const startLecture = async () => {
+  if (!selectedSubject) return showNotify("يرجى اختيار المادة", "error");
+  
+  setLoading(true);
+
+  // 🔥 جلب إحداثيات الأدمن الحالية
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      const { latitude, longitude } = position.coords;
+      
+      const subjectObj = subjects.find(s => s.id === selectedSubject);
+      let finalTopic = subjectObj?.name;
+      const typeLabel = lectureType === 'SECTION' ? '(سكشن)' : lectureType === 'ONLINE' ? '(أونلاين)' : '(محاضرة)';
+      finalTopic = `${finalTopic} ${typeLabel}`;
+
+      try {
         const res = await fetch("/api/lectures", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ topic: finalTopic, type: lectureType, subjectId: selectedSubject, electiveName: electiveName })
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            topic: finalTopic, 
+            type: lectureType, 
+            subjectId: selectedSubject,
+            lat: latitude, // 🔥 إرسال الموقع
+            lng: longitude 
+          })
         });
         const data = await res.json();
         if (res.ok) { 
-            setCurrentLecture(data);
-            localStorage.setItem("activeLecture", JSON.stringify(data));
-            fetchData(); 
-            showNotify("تم بدء السيشن ✅"); 
-            updateReportData();
+          setCurrentLecture(data);
+          localStorage.setItem("activeLecture", JSON.stringify(data));
+          showNotify("تم بدء السيشن وحفظ موقعك الحالي ✅"); 
+          updateReportData();
         }
-    } catch (e) { showNotify("خطأ", "error"); } finally { setLoading(false); }
-  };
+      } catch (e) { showNotify("خطأ في الاتصال", "error"); }
+      finally { setLoading(false); }
+    },
+    (error) => {
+      setLoading(false);
+      showNotify("يجب السماح بالوصول للموقع لإنشاء QR صالح", "error");
+    }
+  );
+};
 
   const endLectureSession = () => { setCurrentLecture(null); setElectiveName(""); localStorage.removeItem("activeLecture"); };
   const handleCreateManualLecture = async (e: React.FormEvent) => { e.preventDefault(); if (!reportSubject) return; const subjectObj = subjects.find(s => s.id === reportSubject); let finalTopic = subjectObj?.name; const typeLabel = manualLectureForm.type === 'SECTION' ? '(سكشن)' : manualLectureForm.type === 'ONLINE' ? '(أونلاين)' : '(محاضرة)'; if (manualLectureForm.topic) finalTopic = manualLectureForm.topic; else finalTopic = `${finalTopic} ${typeLabel}`; try { const res = await fetch("/api/lectures", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic: finalTopic, type: manualLectureForm.type, subjectId: reportSubject, date: manualLectureForm.date }) }); if (res.ok) { showNotify("تم الإضافة ✅"); setShowManualLectureModal(false); updateReportData(); } } catch (e) { showNotify("خطأ", "error"); } };

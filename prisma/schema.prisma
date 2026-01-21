@@ -31,15 +31,18 @@ model Subject {
 }
 
 model Lecture {
-  id         String       @id @default(uuid())
-  topic      String       
-  type       LectureType  @default(PHYSICAL) 
-  date       DateTime     @default(now())
-  qrCode     String       @default("")
+  id        String   @id @default(uuid())
+  topic     String   
+  type      LectureType  @default(PHYSICAL) 
+  date      DateTime     @default(now())
+  qrCode    String       @default("")
   
+  // 🔥 الحقول الجديدة 🔥
+  lat       Float?   
+  lng       Float?   
+
   subjectId  String?
   subject    Subject?     @relation(fields: [subjectId], references: [id])
-
   attendance Attendance[]
 }
 

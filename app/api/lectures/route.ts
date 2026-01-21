@@ -4,7 +4,8 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { topic, type, subjectId, date, electiveName } = body; 
+    // 🔥 تم إضافة lat و lng لاستقبالهما من الأدمن
+    const { topic, type, subjectId, date, electiveName, lat, lng } = body; 
 
     // 1. التأكد من وجود المادة
     const subject = await prisma.subject.findUnique({
@@ -23,14 +24,17 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2. إنشاء المحاضرة
+    // 2. إنشاء المحاضرة مع منطق الموقع الجغرافي
     const lecture = await prisma.lecture.create({
       data: {
         topic,
         type,
         subjectId,
         date: date ? new Date(date) : new Date(),
-        qrCode: `LEC-${crypto.randomUUID()}`
+        qrCode: `LEC-${crypto.randomUUID()}`,
+        // 🔥 تخزين إحداثيات الموقع فقط لو المحاضرة مش ONLINE
+        lat: type !== "ONLINE" ? lat : null,
+        lng: type !== "ONLINE" ? lng : null,
       },
     });
 

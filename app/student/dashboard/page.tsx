@@ -138,42 +138,52 @@ export default function StudentDashboard() {
   };
 
   // 🔥 دالة المسح (Scan) مع التحديث الفوري 🔥
-  const handleScan = async (result: string) => {
-    if (!result || loading || scanResult || !user?.id) return;
-    setScanResult(result); setLoading(true);
-    try {
-      const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: user.id, qrCode: result }) });
-      const data = await res.json();
-      
-      if (res.ok) {
-        showNotification("تم تسجيل الحضور بنجاح! 🎉", 'success');
-        
-        // 1. الحصول على ID المحاضرة من السيرفر
-        const newLectureId = data.lectureId || data.id; 
+// ابحث عن دالة handleScan واستبدلها بهذا
+const handleScan = async (result: string) => {
+  if (!result || loading || scanResult || !user?.id) return;
+  setLoading(true);
 
-        if (newLectureId) {
-            // 2. تحديث الحالة محلياً فوراً (بدون ريفريش)
-            const newAttendanceRecord = { lectureId: newLectureId };
-            const updatedUser = { 
-                ...user, 
-                attendance: [...(user.attendance || []), newAttendanceRecord] 
-            };
-            
-            setUser(updatedUser); 
-            localStorage.setItem("user", JSON.stringify(updatedUser));
-            await buildFullReport(updatedUser); // إعادة تلوين الكروت
-        } else {
-            // حل احتياطي
-            window.location.reload();
-        }
+  // 🔥 طلب موقع الطالب
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      const { latitude, longitude } = position.coords;
+
+      try {
+        const res = await fetch("/api/scan", { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify({ 
+            userId: user.id, 
+            qrCode: result,
+            lat: latitude, // 🔥 إرسال الموقع
+            lng: longitude
+          }) 
+        });
+        const data = await res.json();
         
-        new Audio('/success.mp3').play().catch(() => {}); setTimeout(() => setActiveTab("dashboard"), 1500);
-      } else {
-        showNotification(data.message === "Already Registered" ? "مسجل مسبقاً ✅" : "كود غير صالح ❌", 'error');
-      }
-    } catch (e) { showNotification("فشل الاتصال", 'error'); } 
-    finally { setLoading(false); setTimeout(() => setScanResult(null), 2000); }
-  };
+        if (res.ok) {
+          showNotification("تم تسجيل الحضور بنجاح! 🎉", 'success');
+          // ... (باقي منطق التحديث المحلي الموجود عندك)
+          const newLectureId = data.lectureId || data.id; 
+          if (newLectureId) {
+              const updatedUser = { ...user, attendance: [...(user.attendance || []), { lectureId: newLectureId }] };
+              setUser(updatedUser); 
+              localStorage.setItem("user", JSON.stringify(updatedUser));
+              await buildFullReport(updatedUser);
+          }
+          setTimeout(() => setActiveTab("dashboard"), 1500);
+        } else {
+          showNotification(data.message || "خطأ في تسجيل الحضور", 'error');
+        }
+      } catch (e) { showNotification("فشل الاتصال", 'error'); } 
+      finally { setLoading(false); setScanResult(null); }
+    },
+    (error) => {
+      setLoading(false);
+      showNotification("يجب فتح الموقع (GPS) لتسجيل الحضور", 'error');
+    }
+  );
+};
 
   // 🔥 دوال الأفاتار (توليد + اختيار) 🔥
   const generateRandomAvatars = () => setAvatarSeeds(Array.from({ length: 6 }, () => Math.random().toString(36).substring(7)));
