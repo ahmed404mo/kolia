@@ -2,8 +2,8 @@
 import { useState, useEffect } from "react";
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { 
-  User, LogOut, Save, Camera, Zap, ShieldCheck, Activity, 
-  Edit3, X, CreditCard, Lock, ChevronRight, RefreshCw, Smile 
+  User, LogOut, Camera, Zap, 
+  Edit3, X, RefreshCw, Smile, Mail, Lock
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -17,25 +17,40 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
   
-  // حالة لاختيار الأفاتار
   const [showAvatarSelector, setShowAvatarSelector] = useState(false);
   const [avatarSeeds, setAvatarSeeds] = useState<string[]>([]);
+  const [avatarStyle, setAvatarStyle] = useState("micah");
 
-  // 🔥 دالة توليد أسماء عشوائية للأفاتار (للـ refresh فقط)
+  // إحصائيات افتراضية (سيتم تحديثها من السيرفر)
+  const [stats, setStats] = useState({ total: 0, present: 0, percentage: 0, streak: 0 });
+
+  const avatarStyles = ["micah", "avataaars", "lorelei", "bottts"];
+
+  // جلب إحصائيات الحضور
+  useEffect(() => {
+    if (activeTab === "profile" && user?.id) {
+        // هنا يمكنك استبدال الرابط بـ API الإحصائيات الفعلي لديك
+        // fetch(`/api/attendance/stats?studentId=${user.id}`)
+        //   .then(res => res.json())
+        //   .then(data => setStats(data));
+        
+        // مثال لبيانات تجريبية حتى تربط الـ API
+        setStats({ total: 10, present: 8, percentage: 80, streak: 3 });
+    }
+  }, [activeTab, user]);
+
   const generateRandomAvatars = () => {
     const seeds = Array.from({ length: 6 }, () => Math.random().toString(36).substring(7));
     setAvatarSeeds(seeds);
   };
 
-  // 🔥 دالة حفظ الأفاتار المختار
   const handleSelectAvatar = async (seed: string) => {
     if (!user?.id) return;
     setLoading(true);
-    const avatarUrl = `https://api.dicebear.com/9.x/micah/svg?seed=${seed}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+    const avatarUrl = `https://api.dicebear.com/9.x/${avatarStyle}/svg?seed=${seed}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
     
     try {
         const updatedUser = { ...user, image: avatarUrl };
-        
         const res = await fetch("/api/students", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -47,8 +62,6 @@ export default function StudentDashboard() {
             localStorage.setItem("user", JSON.stringify(updatedUser));
             setMsg("تم تحديث الشخصية بنجاح ✅");
             setShowAvatarSelector(false);
-        } else {
-            setMsg("حدث خطأ أثناء الحفظ ❌");
         }
     } catch (error) {
         setMsg("تعذر الاتصال بالسيرفر");
@@ -64,13 +77,8 @@ export default function StudentDashboard() {
         router.push("/login");
         return;
     }
-    
-    const userData = JSON.parse(stored);
-    setUser(userData);
-
-    // 🔥 توليد الأفاتارز الأولية مباشرة داخل useEffect
-    const initialSeeds = Array.from({ length: 6 }, () => Math.random().toString(36).substring(7));
-    setAvatarSeeds(initialSeeds);
+    setUser(JSON.parse(stored));
+    generateRandomAvatars();
   }, [router]);
 
   const handleLogout = async () => {
@@ -86,33 +94,23 @@ export default function StudentDashboard() {
 
   const handleScan = async (result: string) => {
     if (!result || loading || scanResult || !user?.id) return;
-    
     setScanResult(result);
     setLoading(true);
-
     try {
         const res = await fetch("/api/scan", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId: user.id, qrCode: result })
         });
-
         const data = await res.json();
-
         if (res.ok) {
             setMsg("✅ تم تسجيل الحضور بنجاح!");
             new Audio('/success.mp3').play().catch(() => {}); 
         } else {
-            if (data.message === "Already Registered") {
-                setMsg("✅ تم تسجيل الحضور مسبقاً");
-                new Audio('/success.mp3').play().catch(() => {}); 
-            } else {
-                setMsg("❌ فشل التسجيل: " + (data.message || "خطأ غير معروف"));
-            }
+            setMsg(data.message === "Already Registered" ? "✅ تم تسجيل الحضور مسبقاً" : "❌ فشل التسجيل");
         }
     } catch (e) {
-        console.error(e);
-        setMsg("❌ خطأ في الاتصال بالسيرفر");
+        setMsg("❌ خطأ في الاتصال");
     } finally {
         setLoading(false);
         setTimeout(() => { setScanResult(null); setMsg(""); }, 3000);
@@ -127,286 +125,184 @@ export default function StudentDashboard() {
           const res = await fetch("/api/students", {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(user)
+              body: JSON.stringify({
+                  id: user.id,
+                  name: user.name,
+                  password: user.password
+              })
           });
           if (res.ok) {
             setMsg("تم التحديث بنجاح ✅");
             setIsEditing(false);
             localStorage.setItem("user", JSON.stringify(user)); 
-          } else {
-    let errorMsg = data.message || "خطأ غير معروف";
-    // تحسين الرسائل الشائعة
-    if (errorMsg.includes("غير صالح")) errorMsg = "❌ " + errorMsg;
-    if (errorMsg.includes("منتهي")) errorMsg = "❌ " + errorMsg;
-    if (errorMsg.includes("ناقصة")) errorMsg = "❌ بيانات ناقصة";
-    setMsg("❌ فشل التسجيل: " + errorMsg);
-}
-      } catch(e) { 
-        setMsg("حدث خطأ غير متوقع"); 
-      } finally {
-        setLoading(false);
-        setTimeout(() => setMsg(""), 3000);
-      }
+          }
+      } catch(e) { setMsg("حدث خطأ غير متوقع"); }
+      finally { setLoading(false); setTimeout(() => setMsg(""), 3000); }
   };
 
-  if (!user) return (
-    <div className="h-screen flex flex-col items-center justify-center bg-zinc-950 text-white gap-4">
-        <div className="w-16 h-16 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
-        <p className="text-zinc-500 text-sm animate-pulse">جاري التحميل...</p>
-    </div>
-  );
+  if (!user) return <div className="h-screen bg-black flex items-center justify-center text-white tracking-[0.5em] font-black uppercase animate-pulse">EasyAttend</div>;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans overflow-hidden selection:bg-indigo-500/30" dir="rtl">
+    <div className="min-h-screen bg-black text-white flex flex-col font-sans overflow-hidden" dir="rtl">
       
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute top-[-20%] left-[-20%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] opacity-50"></div>
-          <div className="absolute bottom-[-20%] right-[-20%] w-[600px] h-[600px] bg-blue-600/10 rounded-full blur-[120px] opacity-50"></div>
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03]"></div>
+      <div className="fixed inset-0 pointer-events-none opacity-10">
+          <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,_white_0.5px,_transparent_0.5px)] [background-size:32px_32px]"></div>
       </div>
 
       {msg && (
-          <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-sm p-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-top-5 fade-in duration-300 border backdrop-blur-xl ${msg.includes('✅') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200' : 'bg-red-500/10 border-red-500/20 text-red-200'}`}>
-              <div className={`p-2 rounded-full ${msg.includes('✅') ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
-                {msg.includes('✅') ? <ShieldCheck size={18}/> : <Activity size={18}/>}
-              </div>
-              <span className="font-semibold text-sm tracking-wide">{msg}</span>
+          <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[100] px-10 py-4 bg-white text-black rounded-full font-black text-xs shadow-2xl animate-in fade-in slide-in-from-top-8 duration-500">
+              {msg}
           </div>
       )}
 
-      <main className="flex-1 px-6 pb-32 pt-8 overflow-y-auto z-10 relative scrollbar-hide">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-10">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight text-white mb-1">
-                    مرحباً، <span className="text-transparent bg-clip-text bg-gradient-to-l from-indigo-400 to-cyan-300">{user.name.split(' ')[0]}</span>
-                </h1>
-                <p className="text-xs text-zinc-500 font-medium tracking-wide flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    نظام الحضور الذكي
-                </p>
-            </div>
-            
-            <div className="relative group cursor-pointer" onClick={() => setActiveTab("profile")}>
-                <div className="absolute inset-0 bg-indigo-500 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
-                <div className="relative w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center font-bold text-lg text-indigo-400 overflow-hidden">
-                    {user.image ? (
-                        <img src={user.image} alt="Profile" className="w-full h-full object-cover" />
-                    ) : (
-                        user.name[0].toUpperCase()
-                    )}
-                </div>
-            </div>
-        </div>
+      <header className={`px-8 pt-12 pb-6 z-20 flex justify-between items-end transition-all duration-700 ${activeTab === "profile" ? "opacity-0 invisible h-0 -translate-y-10" : "opacity-100 visible"}`}>
+          <div className="space-y-1">
+              <h1 className="text-white text-[12px] tracking-[0.6em] uppercase font-black">EasyAttend</h1>
+              <p className="text-3xl font-black tracking-tighter text-zinc-400">{user.name.split(' ')[0]}</p>
+          </div>
+          <div className="w-14 h-14 rounded-full border-2 border-zinc-900 p-1">
+              {user.image ? <img src={user.image} className="w-full h-full object-cover rounded-full" /> : <div className="w-full h-full bg-zinc-900 rounded-full flex items-center justify-center text-zinc-600 font-bold">{user.name[0]}</div>}
+          </div>
+      </header>
 
-        {/* Tab Content: SCAN */}
+      <main className={`flex-1 px-5 z-10 relative overflow-y-auto scrollbar-hide transition-all duration-700 ${activeTab === "profile" ? "pt-12" : "pt-4"}`}>
+        
         {activeTab === "scan" && (
-            <div className="flex flex-col h-[65vh] justify-center items-center animate-in fade-in zoom-in duration-500">
-                <div className="relative w-full max-w-[320px] aspect-square bg-black rounded-[2.5rem] overflow-hidden shadow-2xl border border-zinc-800 ring-4 ring-zinc-900/50">
+            <div className="flex flex-col items-center">
+                <div className="relative w-[92vw] max-w-[440px] aspect-square rounded-[4rem] overflow-hidden border border-zinc-800 bg-zinc-950 shadow-2xl group">
                     {!scanResult ? (
                         <>
-<Scanner 
-    onScan={(result) => result[0] && handleScan(result[0].rawValue)}
-    // الإعدادات دي بتخلي الأيفون يعرض الكاميرا جوه الصفحة مش كفيديو منفصل
-    styles={{ 
-        container: { width: '100%', height: '100%', borderRadius: '2.5rem' },
-        video: { objectFit: 'cover' } 
-    }}
-    components={{ 
-        audio: false, // بلاش صوت عشان Safari ساعات بيعمل بلوك بسببه
-        finder: false 
-    }}
-    options={{
-        delayBetweenScans: 3000 // بلاش يمسح بسرعة ورا بعض
-    }}
-/>
-                            
-                            <div className="absolute inset-0 pointer-events-none">
-                                <div className="absolute top-6 left-6 w-8 h-8 border-t-4 border-l-4 border-indigo-500 rounded-tl-xl opacity-80"></div>
-                                <div className="absolute top-6 right-6 w-8 h-8 border-t-4 border-r-4 border-indigo-500 rounded-tr-xl opacity-80"></div>
-                                <div className="absolute bottom-6 left-6 w-8 h-8 border-b-4 border-l-4 border-indigo-500 rounded-bl-xl opacity-80"></div>
-                                <div className="absolute bottom-6 right-6 w-8 h-8 border-b-4 border-r-4 border-indigo-500 rounded-br-xl opacity-80"></div>
-                                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-transparent via-indigo-500/10 to-transparent animate-[scan_2s_ease-in-out_infinite]"></div>
-                                <div className="absolute top-1/2 left-0 w-full h-[1px] bg-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.6)] animate-[scanLine_2s_ease-in-out_infinite]"></div>
+                            <Scanner onScan={(result) => result[0] && handleScan(result[0].rawValue)} styles={{ container: { width: '100%', height: '100%' }, video: { objectFit: 'cover' } }} components={{ audio: false, finder: false }} />
+                            <div className="absolute inset-14 border border-white/5 rounded-[2.5rem] pointer-events-none flex items-center justify-center">
+                                <div className="absolute top-0 left-0 w-10 h-10 border-t-[3px] border-l-[3px] border-white rounded-tl-2xl"></div>
+                                <div className="absolute top-0 right-0 w-10 h-10 border-t-[3px] border-r-[3px] border-white rounded-tr-2xl"></div>
+                                <div className="absolute bottom-0 left-0 w-10 h-10 border-b-[3px] border-l-[3px] border-white rounded-bl-2xl"></div>
+                                <div className="absolute bottom-0 right-0 w-10 h-10 border-b-[3px] border-r-[3px] border-white rounded-br-2xl"></div>
+                                <div className="w-2 h-2 bg-white/20 rounded-full animate-ping"></div>
                             </div>
-
-                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900/80 px-4 py-2 rounded-full text-[10px] font-medium text-zinc-300 backdrop-blur-md border border-white/5 shadow-lg flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping"></div>
-                                جاري البحث عن رمز QR...
-                            </div>
+                            <div className="absolute top-0 left-0 w-full h-[2px] bg-white/60 shadow-[0_0_25px_white] animate-[scanLine_4s_linear_infinite]"></div>
                         </>
                     ) : (
-                        <div className="h-full flex flex-col items-center justify-center bg-zinc-950 p-6 text-center">
-                            {loading ? (
-                                <div className="flex flex-col items-center gap-4">
-                                    <div className="w-12 h-12 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
-                                    <p className="text-indigo-400 font-medium animate-pulse text-sm">جاري التحقق من البيانات...</p>
-                                </div>
-                            ) : (
-                                <p className="text-lg font-bold text-white">{msg}</p>
-                            )}
+                        <div className="h-full flex items-center justify-center bg-black/95 animate-pulse">
+                            {loading && <div className="w-16 h-16 border-[3px] border-white border-t-transparent rounded-full animate-spin"></div>}
                         </div>
                     )}
                 </div>
-                
-                <p className="mt-8 text-zinc-500 text-xs flex items-center gap-2 bg-zinc-900/50 px-4 py-2 rounded-full border border-zinc-800">
-                    <Zap size={12} className="text-amber-500"/>
-                    تأكد من إضاءة المكان لمسح أسرع
-                </p>
+                <div className="mt-16 text-center space-y-6">
+                    <p className="text-zinc-600 text-[12px] tracking-[0.5em] font-black uppercase">وجه الكاميرا نحو الكود</p>
+                    <Zap size={20} className="text-white fill-white animate-pulse mx-auto opacity-60" />
+                </div>
             </div>
         )}
 
-        {/* Tab Content: PROFILE */}
         {activeTab === "profile" && (
-            <div className="max-w-md mx-auto animate-in slide-in-from-bottom-4 duration-500">
+            <div className="max-w-md mx-auto space-y-6 pb-32 animate-in fade-in slide-in-from-bottom-10 duration-700">
                 {!isEditing ? (
-                    <div className="space-y-5">
-                        {/* ID Card */}
-                        <div className="relative overflow-hidden bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 rounded-[2rem] border border-zinc-800 shadow-2xl group">
-                            <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-indigo-600/20 transition duration-700"></div>
-                            
-                            <div className="relative z-10 flex flex-col items-center">
-                                
-                                {/* 🔥🔥🔥 منطقة الأفاتار الجديدة 🔥🔥🔥 */}
-                                <div className="relative w-32 h-32 mb-4 group/img">
-                                    <div className="w-full h-full p-[4px] rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 shadow-xl shadow-indigo-500/20">
-                                        <div className="w-full h-full bg-zinc-900 rounded-full flex items-center justify-center overflow-hidden relative">
-                                            {user.image ? (
-                                                <img src={user.image} alt="Profile" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <span className="text-4xl font-bold text-white">{user.name[0]}</span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* زرار تغيير الشخصية */}
-                                    <button 
-                                        onClick={() => setShowAvatarSelector(!showAvatarSelector)}
-                                        className="absolute bottom-0 right-0 bg-white text-indigo-600 p-2.5 rounded-full shadow-lg hover:bg-indigo-50 transition active:scale-95 border-4 border-zinc-950 z-20"
-                                        title="تغيير الشخصية"
-                                    >
-                                        <Smile size={18} strokeWidth={2.5} />
-                                    </button>
-                                </div>
-
-                                {/* 🔥🔥🔥 قائمة اختيار الأفاتار 🔥🔥🔥 */}
-                                {showAvatarSelector && (
-                                    <div className="w-full bg-zinc-900/90 backdrop-blur-md rounded-2xl p-4 mb-6 border border-zinc-700 animate-in zoom-in duration-200">
-                                        <div className="flex justify-between items-center mb-3">
-                                            <p className="text-xs font-bold text-zinc-400">اختر شخصيتك</p>
-                                            <button onClick={generateRandomAvatars} className="text-indigo-400 text-xs flex items-center gap-1 hover:text-indigo-300">
-                                                <RefreshCw size={12}/> شخصيات جديدة
-                                            </button>
-                                        </div>
-                                        <div className="grid grid-cols-3 gap-3">
-                                            {avatarSeeds.map((seed) => (
-                                                <button 
-                                                    key={seed}
-                                                    onClick={() => handleSelectAvatar(seed)}
-                                                    className="relative aspect-square rounded-xl overflow-hidden bg-zinc-800 hover:ring-2 ring-indigo-500 transition active:scale-95 group"
-                                                >
-                                                    {loading && <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/50"><div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin"/></div>}
-                                                    <img 
-                                                        src={`https://api.dicebear.com/9.x/micah/svg?seed=${seed}&backgroundColor=b6e3f4,c0aede,d1d4f9`} 
-                                                        alt="Avatar" 
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                <h2 className="text-xl font-bold text-white mb-1">{user.name}</h2>
-                                <p className="text-zinc-500 text-sm mb-8 font-medium bg-zinc-900/50 px-3 py-1 rounded-full border border-zinc-800">{user.email}</p>
-                                
-                                <div className="grid grid-cols-2 gap-4 w-full">
-                                    <div className="bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800/50 text-center">
-                                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center justify-center gap-1.5"><CreditCard size={10}/> الشعبة</p>
-                                        <p className="font-bold text-lg text-indigo-200">{user.division || "-"}</p>
-                                    </div>
-                                    <div className="bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800/50 text-center">
-                                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center justify-center gap-1.5"><User size={10}/> رقم الكشف</p>
-                                        <p className="font-bold text-lg text-indigo-200">{user.classNumber || "-"}</p>
+                    <>
+                        <div className="bg-zinc-900/10 border border-zinc-900 p-8 rounded-[3.5rem] flex flex-col items-center text-center backdrop-blur-xl">
+                            <div className="relative w-40 h-40 mb-6 group">
+                                <div className="w-full h-full rounded-full border-[3px] border-zinc-800 p-1.5 transition-all group-hover:border-white">
+                                    <div className="w-full h-full bg-zinc-900 rounded-full overflow-hidden flex items-center justify-center">
+                                        {user.image ? <img src={user.image} className="w-full h-full" /> : <span className="text-5xl font-black">{user.name[0]}</span>}
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex flex-col gap-3">
-                            <button onClick={() => setIsEditing(true)} className="w-full py-4 bg-zinc-900 hover:bg-zinc-800 text-white rounded-2xl font-semibold transition-all border border-zinc-800 flex justify-between px-6 items-center group">
-                                <span className="flex items-center gap-3"><Edit3 size={18} className="text-indigo-500"/> تعديل البيانات</span>
-                                <ChevronRight size={16} className="text-zinc-600 group-hover:text-white transition"/>
-                            </button>
-                            <button onClick={handleLogout} className="w-full py-4 bg-zinc-900 hover:bg-red-950/30 text-red-400 hover:text-red-300 rounded-2xl font-semibold transition-all border border-zinc-800 flex justify-between px-6 items-center group">
-                                <span className="flex items-center gap-3"><LogOut size={18}/> تسجيل خروج</span>
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    /* Edit Mode */
-                    <div className="bg-zinc-900/80 backdrop-blur-md p-6 rounded-[2rem] border border-zinc-800 shadow-2xl">
-                        <div className="flex items-center justify-between mb-8">
-                            <h3 className="text-lg font-bold text-white flex items-center gap-2">تعديل الملف الشخصي</h3>
-                            <button onClick={() => setIsEditing(false)} className="p-2 bg-zinc-800 rounded-full hover:bg-zinc-700 text-zinc-400 transition"><X size={16}/></button>
-                        </div>
-
-                        <form onSubmit={handleUpdateProfile} className="space-y-5">
-                            <div className="space-y-2">
-                                <label className="text-xs font-semibold text-zinc-500 mr-1 uppercase tracking-wider">الاسم الكامل</label>
-                                <div className="relative group">
-                                    <input 
-                                        className="w-full p-4 pl-10 rounded-2xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition text-sm text-white placeholder:text-zinc-700" 
-                                        value={user.name} 
-                                        onChange={e => setUser({...user, name: e.target.value})} 
-                                        placeholder="الاسم الكامل" 
-                                    />
-                                    <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-indigo-500 transition"/>
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <label className="text-xs font-semibold text-zinc-500 mr-1 uppercase tracking-wider">كلمة المرور</label>
-                                <div className="relative group">
-                                    <input 
-                                        className="w-full p-4 pl-10 rounded-2xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition text-sm text-white placeholder:text-zinc-700" 
-                                        type="password"
-                                        value={user.password || ""} 
-                                        onChange={e => setUser({...user, password: e.target.value})} 
-                                        placeholder="اكتب كلمة مرور جديدة (اختياري)"
-                                    />
-                                    <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-indigo-500 transition"/>
-                                </div>
-                            </div>
-                            
-                            <div className="pt-6 flex gap-3">
-                                <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-3.5 bg-zinc-800 text-zinc-300 rounded-xl font-semibold hover:bg-zinc-700 transition">إلغاء</button>
-                                <button disabled={loading} className="flex-[2] bg-indigo-600 text-white py-3.5 rounded-xl font-semibold hover:bg-indigo-500 transition flex justify-center items-center gap-2 shadow-lg shadow-indigo-600/20">
-                                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <><Save size={18}/> حفظ</>}
+                                <button onClick={() => setShowAvatarSelector(!showAvatarSelector)} className="absolute bottom-1 right-1 bg-white text-black p-3 rounded-full border-[4px] border-black hover:scale-110 active:scale-90 transition shadow-2xl">
+                                    <Smile size={20} strokeWidth={3}/>
                                 </button>
                             </div>
-                        </form>
-                    </div>
+
+                            {showAvatarSelector && (
+                                <div className="w-full bg-zinc-950/95 border border-zinc-800 rounded-[2.5rem] p-6 mb-6 animate-in zoom-in duration-300">
+                                    <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
+                                        {avatarStyles.map(s => (
+                                            <button key={s} onClick={() => setAvatarStyle(s)} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase transition ${avatarStyle === s ? "bg-white text-black" : "bg-zinc-800 text-zinc-500"}`}>{s}</button>
+                                        ))}
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        {avatarSeeds.map(s => (
+                                            <button key={s} onClick={() => handleSelectAvatar(s)} className="aspect-square bg-zinc-900 rounded-2xl overflow-hidden hover:ring-2 ring-white active:scale-90 transition-all">
+                                                <img src={`https://api.dicebear.com/9.x/${avatarStyle}/svg?seed=${s}`} alt="avatar" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button onClick={generateRandomAvatars} className="mt-4 w-full py-3 bg-zinc-800 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 tracking-widest hover:bg-zinc-700"><RefreshCw size={14}/> تحديث الخيارات</button>
+                                </div>
+                            )}
+
+                            <h2 className="text-3xl font-black tracking-tighter mb-1">{user.name}</h2>
+                            <p className="text-zinc-600 text-[10px] mb-8 tracking-widest uppercase font-black">{user.email}</p>
+
+                            <div className="grid grid-cols-2 gap-3 w-full">
+                                <div className="bg-zinc-950 p-6 rounded-[2rem] border border-zinc-900 text-right">
+                                    <p className="text-[9px] uppercase font-black text-zinc-600 mb-1 tracking-widest">الشعبة</p>
+                                    <p className="font-black text-xl tracking-tighter">{user.division || "1"}</p>
+                                </div>
+                                <div className="bg-zinc-950 p-6 rounded-[2rem] border border-zinc-900 text-right">
+                                    <p className="text-[9px] uppercase font-black text-zinc-600 mb-1 tracking-widest">رقم الكشف</p>
+                                    <p className="font-black text-xl tracking-tighter">{user.classNumber || "2"}</p>
+                                </div>
+                            </div>
+
+                            {/* كروت الإحصائيات المحسنة */}
+                            <div className="grid grid-cols-2 gap-3 w-full mt-3">
+                                <div className="bg-white text-black p-6 rounded-[2rem] text-right shadow-xl">
+                                    <p className="text-[9px] uppercase font-black opacity-40 mb-1 tracking-widest">نسبة الحضور</p>
+                                    <p className="font-black text-3xl tracking-tighter">{stats.percentage}%</p>
+                                </div>
+                                <div className="bg-zinc-900 p-6 rounded-[2rem] border border-zinc-800 text-right">
+                                    <p className="text-[9px] uppercase font-black text-zinc-600 mb-1 tracking-widest">متتالي 🔥</p>
+                                    <p className="font-black text-3xl tracking-tighter">{stats.streak}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 px-1">
+                            <button onClick={() => setIsEditing(true)} className="w-full py-5 bg-zinc-950 border border-zinc-900 rounded-[2rem] font-black flex items-center justify-between px-8 text-zinc-500 hover:text-white transition group">
+                                <span className="text-[10px] uppercase tracking-widest">تعديل الحساب</span><Edit3 size={18}/>
+                            </button>
+                            <button onClick={handleLogout} className="w-full py-5 bg-zinc-900 border border-red-900/30 text-red-500 rounded-[2rem] font-black flex items-center justify-between px-8 hover:bg-red-500 hover:text-white transition duration-500">
+                                <span className="text-[10px] uppercase tracking-widest">تسجيل الخروج</span><LogOut size={18}/>
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <form onSubmit={handleUpdateProfile} className="bg-zinc-950 p-8 rounded-[3.5rem] border border-zinc-900 space-y-6 shadow-2xl">
+                        <div className="flex justify-between items-center mb-4"><h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-600">الإعدادات</h3><button onClick={()=>setIsEditing(false)} className="bg-zinc-900 p-2.5 rounded-full"><X size={18}/></button></div>
+                        <div className="space-y-4">
+                            <div className="relative group">
+                                <User className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-white transition" size={18} />
+                                <input className="w-full p-5 pr-12 bg-black border border-zinc-900 rounded-2xl text-white focus:border-white outline-none transition text-sm font-black placeholder:text-zinc-800" placeholder="الاسم الكامل" value={user.name} onChange={e=>setUser({...user, name: e.target.value})} />
+                            </div>
+                            <div className="relative group">
+                                <Lock className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-white transition" size={18} />
+                                <input type="password" className="w-full p-5 pr-12 bg-black border border-zinc-900 rounded-2xl text-white focus:border-white outline-none transition text-sm font-black placeholder:text-zinc-800" placeholder="كلمة مرور جديدة" value={user.password || ""} onChange={e=>setUser({...user, password: e.target.value})} />
+                            </div>
+                        </div>
+                        <button className="w-full py-5 bg-white text-black rounded-2xl font-black text-[11px] uppercase tracking-widest hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] active:scale-95 transition-all">حفظ التغييرات</button>
+                    </form>
                 )}
             </div>
         )}
       </main>
 
-      {/* Modern Bottom Dock */}
-      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[280px] bg-zinc-900/90 backdrop-blur-2xl border border-zinc-800 rounded-full shadow-2xl z-50 p-1.5">
-        <div className="flex justify-between items-center relative h-12">
-            <div className={`absolute top-0 bottom-0 w-[48%] bg-zinc-800 rounded-full transition-all duration-300 ease-out border border-zinc-700 ${activeTab === "profile" ? "left-[50%]" : "left-[2%]"}`}></div>
-            
-            <button onClick={() => { setActiveTab("scan"); setIsEditing(false); }} className={`relative flex-1 flex items-center justify-center h-full rounded-full transition-colors duration-300 z-10 gap-2 font-semibold text-sm ${activeTab === "scan" ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}>
-                <Camera size={18} /> مسح
-            </button>
-            
-            <button onClick={() => setActiveTab("profile")} className={`relative flex-1 flex items-center justify-center h-full rounded-full transition-colors duration-300 z-10 gap-2 font-semibold text-sm ${activeTab === "profile" ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}>
-                <User size={18} /> ملفي
-            </button>
-        </div>
+      <nav className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[280px] bg-white text-black rounded-full p-2 flex shadow-2xl z-50">
+          <button onClick={() => {setActiveTab("scan"); setIsEditing(false)}} className={`relative flex-1 h-12 rounded-full font-black text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all duration-500 ${activeTab === "scan" ? "bg-black text-white" : "text-black/20"}`}>
+              <Camera size={16}/> SCAN
+          </button>
+          <button onClick={() => setActiveTab("profile")} className={`relative flex-1 h-12 rounded-full font-black text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all duration-700 ${activeTab === "profile" ? "bg-black text-white" : "text-black/20"}`}>
+              <User size={16}/> PROFILE
+          </button>
       </nav>
+
+      <style jsx global>{`
+        @keyframes scanLine {
+          0% { top: 0; opacity: 0; }
+          20% { opacity: 1; }
+          80% { opacity: 1; }
+          100% { top: 100%; opacity: 0; }
+        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+      `}</style>
     </div>
   );
 }
