@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { topic, type, subjectId, date, electiveName } = body; // ضفنا electiveName هنا
+    const { topic, type, subjectId, date, electiveName } = body; 
 
     // 1. التأكد من وجود المادة
     const subject = await prisma.subject.findUnique({
@@ -15,11 +15,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "Subject not found" }, { status: 404 });
     }
 
-    // 🔥🔥🔥 التعديل الجديد: تحديث اسم المادة في الداتا بيز لو هي اختياري 🔥🔥🔥
+    // 🔥 تحديث اسم المادة في الداتا بيز لو هي اختياري واسم جديد انكتب
     if (subject.isElective && electiveName) {
       await prisma.subject.update({
         where: { id: subjectId },
-        data: { name: electiveName } // تغيير الاسم في جدول المواد
+        data: { name: electiveName } 
       });
     }
 
@@ -66,7 +66,9 @@ export async function DELETE(req: Request) {
         const id = searchParams.get("id");
         if(!id) return NextResponse.json({message: "ID required"}, {status: 400});
 
+        // مسح الحضور المرتبط بالمحاضرة أولاً لتجنب المشاكل
         await prisma.attendance.deleteMany({ where: { lectureId: id } });
+        // ثم مسح المحاضرة
         await prisma.lecture.delete({ where: { id } });
 
         return NextResponse.json({ message: "Deleted" });

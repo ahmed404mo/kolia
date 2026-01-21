@@ -9,6 +9,7 @@ import {
 import { useRouter } from "next/navigation";
 
 export default function Dashboard() {
+  // ... (All existing state and logic remains the same)
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("qr"); 
   const [sidebarOpen, setSidebarOpen] = useState(false); 
@@ -25,7 +26,7 @@ export default function Dashboard() {
   const [selectedSubject, setSelectedSubject] = useState("");
   const [lectureType, setLectureType] = useState("PHYSICAL");
   const [electiveName, setElectiveName] = useState(""); 
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null); // للتحكم في القائمة المفتوحة
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null); 
   
   // Session
   const [currentLecture, setCurrentLecture] = useState<any>(null);
@@ -58,7 +59,6 @@ export default function Dashboard() {
     handleResize();
     window.addEventListener('resize', handleResize);
     
-    // إغلاق القوائم عند الضغط في أي مكان
     const handleClickOutside = () => setActiveMenuId(null);
     window.addEventListener('click', handleClickOutside);
     
@@ -201,7 +201,6 @@ export default function Dashboard() {
   };
   const handlePrint = () => { window.print(); };
 
-  // دالة التحكم في فتح وإغلاق القوائم
   const toggleMenu = (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       setActiveMenuId(activeMenuId === id ? null : id);
@@ -224,19 +223,24 @@ export default function Dashboard() {
             .print-header { text-align: center; border-bottom: 2px solid #000; margin-bottom: 10px; padding-bottom: 5px; }
             .id-copy-section { display: none !important; }
             .check-mark { font-size: 14px; font-weight: bold; }
+            
+            /* 🔥🔥🔥 THIS IS THE FIX 🔥🔥🔥 */
+            /* Force page break after each group div */
+            .page-break { page-break-after: always; break-after: page; display: block; }
+            /* Prevent page break inside the table if possible, though 'page-break-after: always' on container handles the main requirement */
+            tr { page-break-inside: avoid; }
         }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
       `}</style>
 
       {notification && (<div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-5 no-print ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'} text-white`}>{notification.type === 'success' ? <CheckCircle size={20}/> : <AlertCircle size={20}/>}<span className="font-bold">{notification.message}</span></div>)}
       
-      {/* Mobile Overlay */}
+      {/* ... (Rest of the JSX remains exactly the same, as the class 'page-break' was already present in your original code) ... */}
       <div 
         className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 lg:hidden ${sidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
         onClick={() => setSidebarOpen(false)}
       />
 
-      {/* Sidebar */}
       <aside 
         className={`
             fixed top-0 right-0 h-full z-50 bg-slate-900 text-white shadow-2xl
@@ -245,6 +249,7 @@ export default function Dashboard() {
             ${sidebarOpen ? "translate-x-0 w-64" : "translate-x-full lg:w-20"}
         `}
       >
+        {/* ... Sidebar content ... */}
         <div className="p-6 border-b border-slate-700 flex items-center justify-between min-h-[80px]">
             <h1 className={`text-xl font-bold whitespace-nowrap overflow-hidden transition-all duration-300 ${sidebarOpen ? "opacity-100" : "opacity-0 hidden lg:block lg:opacity-0 group-hover:opacity-100"}`}>Admin Panel</h1>
             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-700 rounded hidden lg:block">
@@ -277,6 +282,7 @@ export default function Dashboard() {
       </aside>
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative w-full bg-gray-50">
+        {/* ... Main content ... */}
         <div className="lg:hidden p-4 bg-white border-b flex justify-between items-center shadow-sm z-30 no-print flex-shrink-0">
             <h1 className="font-bold text-slate-800">Admin Panel</h1>
             <button onClick={() => setSidebarOpen(true)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
@@ -288,6 +294,7 @@ export default function Dashboard() {
             {/* QR Tab */}
             {activeTab === "qr" && (
                 <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col lg:flex-row border border-slate-100 mb-10">
+                    {/* ... QR Tab Content ... */}
                     <div className="p-6 md:p-8 lg:w-1/2 border-b lg:border-b-0 lg:border-l border-slate-100 flex flex-col justify-center">
                         {!currentLecture ? (
                             <div className="space-y-6">
@@ -309,6 +316,7 @@ export default function Dashboard() {
             {/* Report Tab */}
             {activeTab === "report" && (
                 <div className="bg-white rounded-3xl shadow-lg border border-slate-200 overflow-hidden w-full mb-10">
+                    {/* ... Report Header ... */}
                     <div className="p-4 md:p-6 border-b flex flex-col xl:flex-row justify-between items-center gap-4 no-print bg-slate-50">
                         <div className="w-full xl:w-auto text-center xl:text-right">
                             <h2 className="text-2xl font-bold text-slate-800 flex items-center justify-center xl:justify-start gap-2"><FileText className="text-blue-600"/> دفاتر الغياب</h2>
@@ -345,8 +353,6 @@ export default function Dashboard() {
                                                         <th className="border p-2 text-right w-40 min-w-[150px]">اسم الطالب</th>
                                                         {allSubjectLectures.map((lec: any) => (
                                                             <th key={lec.id} className="border p-1 w-10 relative align-bottom group">
-                                                                
-                                                                {/* 🔥🔥🔥 قائمة التعديل والحذف (تعمل بالضغط) 🔥🔥🔥 */}
                                                                 <div className="relative no-print flex justify-center mb-1">
                                                                     <button 
                                                                         onClick={(e) => toggleMenu(e, lec.id)}
@@ -354,30 +360,29 @@ export default function Dashboard() {
                                                                     >
                                                                         <MoreVertical size={16} />
                                                                     </button>
-                                                                    
                                                                     {activeMenuId === lec.id && (
                                                                         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px] animate-in fade-in zoom-in duration-200">
-                                                                            <button 
-                                                                                onClick={(e) => { 
-                                                                                    e.stopPropagation(); 
-                                                                                    setEditLectureForm({id: lec.id, topic: lec.topic, date: lec.date.split('T')[0]}); 
-                                                                                    setShowEditLectureModal(true); 
-                                                                                    setActiveMenuId(null);
-                                                                                }} 
-                                                                                className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"
-                                                                            >
-                                                                                <Edit size={14}/> تعديل الجلسة
-                                                                            </button>
-                                                                            <button 
-                                                                                onClick={(e) => { 
-                                                                                    e.stopPropagation(); 
-                                                                                    setConfirmModal({isOpen: true, type: 'LECTURE', id: lec.id}); 
-                                                                                    setActiveMenuId(null);
-                                                                                }} 
-                                                                                className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"
-                                                                            >
-                                                                                <Trash2 size={14}/> حذف الجلسة
-                                                                            </button>
+                                                                                <button 
+                                                                                    onClick={(e) => { 
+                                                                                        e.stopPropagation(); 
+                                                                                        setEditLectureForm({id: lec.id, topic: lec.topic, date: lec.date.split('T')[0]}); 
+                                                                                        setShowEditLectureModal(true); 
+                                                                                        setActiveMenuId(null);
+                                                                                    }} 
+                                                                                    className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"
+                                                                                >
+                                                                                    <Edit size={14}/> تعديل الجلسة
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={(e) => { 
+                                                                                        e.stopPropagation(); 
+                                                                                        setConfirmModal({isOpen: true, type: 'LECTURE', id: lec.id}); 
+                                                                                        setActiveMenuId(null);
+                                                                                    }} 
+                                                                                    className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"
+                                                                                >
+                                                                                    <Trash2 size={14}/> حذف الجلسة
+                                                                                </button>
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -447,30 +452,29 @@ export default function Dashboard() {
                            <tbody>
                                {students.filter(s=>s.name.includes(searchTerm)).map(s=>(
                                    <tr key={s.id} className="border-b hover:bg-gray-50">
-                                       <td className="p-4 font-bold text-blue-600">{s.classNumber}</td>
-                                       <td className="p-4">
-                                           {s.image ? (
-                                               <img src={s.image} alt={s.name} className="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-sm" />
-                                           ) : (
-                                               <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg border border-blue-200 shadow-sm">
-                                                   {s.name[0]}
+                                           <td className="p-4 font-bold text-blue-600">{s.classNumber}</td>
+                                           <td className="p-4">
+                                               {s.image ? (
+                                                   <img src={s.image} alt={s.name} className="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-sm" />
+                                               ) : (
+                                                   <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg border border-blue-200 shadow-sm">
+                                                       {s.name[0]}
+                                                   </div>
+                                               )}
+                                           </td>
+                                           <td className="p-4 font-medium">{s.name}</td>
+                                           <td className="p-4">{s.division}</td>
+                                           <td className="p-4">
+                                               <div className="relative flex justify-center">
+                                                   <button onClick={(e) => toggleMenu(e, `student-${s.id}`)} className="p-2 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition"><MoreVertical size={18}/></button>
+                                                   {activeMenuId === `student-${s.id}` && (
+                                                       <div className="absolute top-8 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px] animate-in fade-in zoom-in duration-200">
+                                                               <button onClick={(e)=>{ e.stopPropagation(); setStudentForm(s); setIsEditingStudent(true); setShowStudentModal(true); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"><Edit size={14}/> تعديل</button>
+                                                               <button onClick={(e)=>{ e.stopPropagation(); setConfirmModal({isOpen: true, type: 'STUDENT', id: s.id}); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"><Trash2 size={14}/> حذف</button>
+                                                       </div>
+                                                   )}
                                                </div>
-                                           )}
-                                       </td>
-                                       <td className="p-4 font-medium">{s.name}</td>
-                                       <td className="p-4">{s.division}</td>
-                                       <td className="p-4">
-                                            {/* 🔥🔥🔥 قائمة تعديل الطلاب 🔥🔥🔥 */}
-                                            <div className="relative flex justify-center">
-                                                <button onClick={(e) => toggleMenu(e, `student-${s.id}`)} className="p-2 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition"><MoreVertical size={18}/></button>
-                                                {activeMenuId === `student-${s.id}` && (
-                                                    <div className="absolute top-8 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px] animate-in fade-in zoom-in duration-200">
-                                                        <button onClick={(e)=>{ e.stopPropagation(); setStudentForm(s); setIsEditingStudent(true); setShowStudentModal(true); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"><Edit size={14}/> تعديل</button>
-                                                        <button onClick={(e)=>{ e.stopPropagation(); setConfirmModal({isOpen: true, type: 'STUDENT', id: s.id}); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"><Trash2 size={14}/> حذف</button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                       </td>
+                                           </td>
                                    </tr>
                                ))}
                            </tbody>
