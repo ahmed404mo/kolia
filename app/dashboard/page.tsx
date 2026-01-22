@@ -9,7 +9,6 @@ import {
 import { useRouter } from "next/navigation";
 
 export default function Dashboard() {
-  // ... (All existing state and logic remains the same)
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("qr"); 
   const [sidebarOpen, setSidebarOpen] = useState(false); 
@@ -40,7 +39,8 @@ export default function Dashboard() {
   // Modals
   const [showStudentModal, setShowStudentModal] = useState(false);
   const [isEditingStudent, setIsEditingStudent] = useState(false);
-  const [studentForm, setStudentForm] = useState({ id: "", name: "", email: "", password: "", division: "", classNumber: "" });
+  // لاحظ: الـ state هنا بيشيل البيانات اللي بتظهر في المودال
+  const [studentForm, setStudentForm] = useState<{ id: string, name: string, email: string, password?: string, division: string, classNumber: string }>({ id: "", name: "", email: "", password: "", division: "", classNumber: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [showManualLectureModal, setShowManualLectureModal] = useState(false);
   const [manualLectureForm, setManualLectureForm] = useState({ topic: "", date: "", type: "PHYSICAL" });
@@ -121,8 +121,12 @@ export default function Dashboard() {
       ? (lectures || [])
           .filter(l => {
               if (l.subjectId !== reportSubject) return false;
-              if (reportType === "SECTION") return l.type === "SECTION";
-              if (reportType === "PHYSICAL") return l.type === "PHYSICAL" || l.type === "ONLINE";
+              const lecType = (l.type || "").toUpperCase().trim();
+              const repType = (reportType || "").toUpperCase().trim();
+
+              if (repType === "ALL") return true;
+              if (repType === "SECTION") return lecType === "SECTION";
+              if (repType === "PHYSICAL") return lecType === "PHYSICAL" || lecType === "ONLINE";
               return true;
           })
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
@@ -133,7 +137,7 @@ export default function Dashboard() {
   const groupedStudents = ["1", "2", "3", "4", "5", "6"].map(div => ({
       division: div, 
       students: (students || [])
-        .filter(s => s.division === div)
+        .filter(s => String(s.division) === String(div))
         .sort((a, b) => parseInt(a.classNumber || "0") - parseInt(b.classNumber || "0"))
   })).filter(g => g.students.length > 0);
 
@@ -152,57 +156,104 @@ export default function Dashboard() {
     window.location.replace("/login?out=true"); 
   };
   
-// ابحث عن دالة startLecture واستبدلها بهذا الجزء
 const startLecture = async () => {
-  if (!selectedSubject) return showNotify("يرجى اختيار المادة", "error");
-  
-  setLoading(true);
+    if (!selectedSubject) return showNotify("يرجى اختيار المادة", "error");
+    setLoading(true);
 
-  // 🔥 جلب إحداثيات الأدمن الحالية
-  navigator.geolocation.getCurrentPosition(
-    async (position) => {
-      const { latitude, longitude } = position.coords;
-      
-      const subjectObj = subjects.find(s => s.id === selectedSubject);
-      let finalTopic = subjectObj?.name;
-      const typeLabel = lectureType === 'SECTION' ? '(سكشن)' : lectureType === 'ONLINE' ? '(أونلاين)' : '(محاضرة)';
-      finalTopic = `${finalTopic} ${typeLabel}`;
-
-      try {
-        const res = await fetch("/api/lectures", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            topic: finalTopic, 
-            type: lectureType, 
-            subjectId: selectedSubject,
-            lat: latitude, // 🔥 إرسال الموقع
-            lng: longitude 
-          })
-        });
-        const data = await res.json();
-        if (res.ok) { 
-          setCurrentLecture(data);
-          localStorage.setItem("activeLecture", JSON.stringify(data));
-          showNotify("تم بدء السيشن وحفظ موقعك الحالي ✅"); 
-          updateReportData();
-        }
-      } catch (e) { showNotify("خطأ في الاتصال", "error"); }
-      finally { setLoading(false); }
-    },
-    (error) => {
-      setLoading(false);
-      showNotify("يجب السماح بالوصول للموقع لإنشاء QR صالح", "error");
+    const subjectObj = subjects.find(s => s.id === selectedSubject);
+    let finalTopic = subjectObj?.name;
+    
+    if (subjectObj?.isElective) {
+        if(!electiveName) { setLoading(false); return showNotify("اسم المقرر مطلوب", "error"); }
+        finalTopic = electiveName;
     }
-  );
-};
+    
+    const typeLabel = lectureType === 'SECTION' ? '(سكشن)' : lectureType === 'ONLINE' ? '(أونلاين)' : '(محاضرة)';
+    finalTopic = `${finalTopic} ${typeLabel}`;
+
+    // دالة مساعدة لإنشاء المحاضرة
+    const createLecture = async (lat: number | null, lng: number | null) => {
+        try {
+            const res = await fetch("/api/lectures", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                // بنبعت الموقع هنا، لو أونلاين هيكون null
+                body: JSON.stringify({ 
+                    topic: finalTopic, 
+                    type: lectureType, 
+                    subjectId: selectedSubject, 
+                    electiveName: electiveName, 
+                    lat, 
+                    lng 
+                })
+            });
+            const data = await res.json();
+            if (res.ok) { 
+                setCurrentLecture(data); 
+                localStorage.setItem("activeLecture", JSON.stringify(data));
+                fetchData(); 
+                // رسالة مختلفة حسب النوع
+                if(lat && lng) showNotify("تم بدء السيشن وحفظ موقع القاعة ✅");
+                else showNotify("تم بدء السيشن الأونلاين (متاح للجميع) 🌍");
+                
+                updateReportData();
+            }
+        } catch (e) { showNotify("خطأ", "error"); } 
+        finally { setLoading(false); }
+    };
+
+    // 🔥 هنا الذكاء: لو أونلاين ماتطلبش الموقع وابعت null فوراً 🔥
+    if (lectureType === 'ONLINE') {
+        createLecture(null, null); 
+    } else {
+        // لو محاضرة أو سكشن، لازم نحدد مكانك عشان الطلاب يجوا عندك
+        navigator.geolocation.getCurrentPosition(
+            (position) => createLecture(position.coords.latitude, position.coords.longitude),
+            (error) => { 
+                setLoading(false); 
+                showNotify("يجب السماح بالوصول للموقع للمحاضرات الحضوريه", "error"); 
+            }
+        );
+    }
+  };
 
   const endLectureSession = () => { setCurrentLecture(null); setElectiveName(""); localStorage.removeItem("activeLecture"); };
   const handleCreateManualLecture = async (e: React.FormEvent) => { e.preventDefault(); if (!reportSubject) return; const subjectObj = subjects.find(s => s.id === reportSubject); let finalTopic = subjectObj?.name; const typeLabel = manualLectureForm.type === 'SECTION' ? '(سكشن)' : manualLectureForm.type === 'ONLINE' ? '(أونلاين)' : '(محاضرة)'; if (manualLectureForm.topic) finalTopic = manualLectureForm.topic; else finalTopic = `${finalTopic} ${typeLabel}`; try { const res = await fetch("/api/lectures", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic: finalTopic, type: manualLectureForm.type, subjectId: reportSubject, date: manualLectureForm.date }) }); if (res.ok) { showNotify("تم الإضافة ✅"); setShowManualLectureModal(false); updateReportData(); } } catch (e) { showNotify("خطأ", "error"); } };
   const handleUpdateLecture = async (e: React.FormEvent) => { e.preventDefault(); try { const res = await fetch("/api/lectures", { method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(editLectureForm) }); if(res.ok) { showNotify("تم التعديل"); setShowEditLectureModal(false); updateReportData(); } } catch(e) { showNotify("خطأ", "error"); } };
   const handleDeleteStudent = async () => { if (!confirmModal.id) return; await fetch(`/api/students?id=${confirmModal.id}`, { method: "DELETE" }); showNotify("تم الحذف"); updateReportData(); setConfirmModal({ isOpen: false, type: null, id: null }); };
   const handleDeleteLecture = async () => { if (!confirmModal.id) return; await fetch(`/api/lectures?id=${confirmModal.id}`, { method: "DELETE" }); showNotify("تم الحذف"); updateReportData(); setConfirmModal({ isOpen: false, type: null, id: null }); };
-  const handleSaveStudent = async (e: React.FormEvent) => { e.preventDefault(); const method = isEditingStudent ? "PUT" : "POST"; await fetch("/api/students", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(studentForm) }); setShowStudentModal(false); updateReportData(); showNotify("تم الحفظ"); };
+  
+  // 🔥🔥🔥 التعديل 2: دالة الحفظ الذكية (عشان لو الباسورد فاضي مايبوظش القديم) 🔥🔥🔥
+  const handleSaveStudent = async (e: React.FormEvent) => { 
+    e.preventDefault(); 
+    const method = isEditingStudent ? "PUT" : "POST"; 
+    
+    // بناخد نسخة من البيانات عشان نعدل عليها
+    const payload: any = { ...studentForm };
+
+    // لو بنعدل (Edit) وخانة الباسورد فاضية، بنشيلها من البيانات عشان الـ API مايغيرش الباسورد القديم
+    if (isEditingStudent && !payload.password) {
+        delete payload.password;
+    }
+
+    try {
+        const res = await fetch("/api/students", { 
+            method, 
+            headers: { "Content-Type": "application/json" }, 
+            body: JSON.stringify(payload) 
+        });
+        
+        if(res.ok) {
+            setShowStudentModal(false); 
+            updateReportData(); 
+            showNotify(isEditingStudent ? "تم تعديل البيانات" : "تم إضافة الطالب");
+        } else {
+            showNotify("حدث خطأ", "error");
+        }
+    } catch (err) {
+        showNotify("فشل الاتصال", "error");
+    }
+  };
+
   const toggleAttendance = async (studentId: string, lectureId: string, currentStatus: boolean) => {
     const newStatus = !currentStatus;
     setStudents(prev => prev.map(s => {
@@ -218,11 +269,7 @@ const startLecture = async () => {
     updateReportData(); 
   };
   const handlePrint = () => { window.print(); };
-
-  const toggleMenu = (e: React.MouseEvent, id: string) => {
-      e.stopPropagation();
-      setActiveMenuId(activeMenuId === id ? null : id);
-  };
+  const toggleMenu = (e: React.MouseEvent, id: string) => { e.stopPropagation(); setActiveMenuId(activeMenuId === id ? null : id); };
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-right overflow-hidden" dir="rtl">
@@ -230,89 +277,73 @@ const startLecture = async () => {
       <style jsx global>{`
         @media print {
             @page { size: A4 landscape; margin: 5mm; }
-            body { background-color: white; -webkit-print-color-adjust: exact; }
-            body * { visibility: hidden; }
-            #printable-area, #printable-area * { visibility: visible; }
-            #printable-area { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; }
-            .no-print { display: none !important; }
-            .print-table { width: 100%; border-collapse: collapse !important; border: 2px solid #000 !important; font-size: 11px; }
-            .print-table th, .print-table td { border: 1px solid #000 !important; padding: 2px; text-align: center; color: black; }
-            .print-table th { background-color: #f3f4f6 !important; font-weight: bold; }
-            .print-header { text-align: center; border-bottom: 2px solid #000; margin-bottom: 10px; padding-bottom: 5px; }
-            .id-copy-section { display: none !important; }
-            .check-mark { font-size: 14px; font-weight: bold; }
             
-            /* 🔥🔥🔥 THIS IS THE FIX 🔥🔥🔥 */
-            /* Force page break after each group div */
-            .page-break { page-break-after: always; break-after: page; display: block; }
-            /* Prevent page break inside the table if possible, though 'page-break-after: always' on container handles the main requirement */
-            tr { page-break-inside: avoid; }
+            aside, .no-print, button, .modal, .sidebar-overlay { display: none !important; }
+            
+            body, main, #__next, div { 
+                overflow: visible !important; 
+                height: auto !important;
+                background-color: white !important;
+            }
+
+            #printable-area {
+                display: block !important;
+                width: 100% !important;
+            }
+
+            .page-break {
+                page-break-after: always !important;
+                break-after: page !important;
+                display: block !important;
+                margin-bottom: 20px !important;
+            }
+            .page-break:last-child {
+                page-break-after: auto !important;
+            }
+
+            .print-table {
+                width: 100% !important;
+                border: 2px solid black !important;
+                border-collapse: collapse !important;
+                page-break-inside: avoid !important;
+            }
+
+            .print-table th, .print-table td {
+                border: 1px solid black !important;
+                padding: 4px !important;
+                color: black !important;
+            }
+
+            .print-table th { background-color: #f3f4f6 !important; }
+            .check-mark { color: black !important; }
         }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
       `}</style>
 
       {notification && (<div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-5 no-print ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'} text-white`}>{notification.type === 'success' ? <CheckCircle size={20}/> : <AlertCircle size={20}/>}<span className="font-bold">{notification.message}</span></div>)}
       
-      {/* ... (Rest of the JSX remains exactly the same, as the class 'page-break' was already present in your original code) ... */}
-      <div 
-        className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 lg:hidden ${sidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
-        onClick={() => setSidebarOpen(false)}
-      />
+      <div className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 sidebar-overlay lg:hidden ${sidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`} onClick={() => setSidebarOpen(false)}/>
 
-      <aside 
-        className={`
-            fixed top-0 right-0 h-full z-50 bg-slate-900 text-white shadow-2xl
-            transition-transform duration-300 ease-in-out flex flex-col no-print
-            lg:relative lg:z-auto lg:translate-x-0
-            ${sidebarOpen ? "translate-x-0 w-64" : "translate-x-full lg:w-20"}
-        `}
-      >
-        {/* ... Sidebar content ... */}
+      <aside className={`fixed top-0 right-0 h-full z-50 bg-slate-900 text-white shadow-2xl transition-transform duration-300 ease-in-out flex flex-col no-print lg:relative lg:z-auto lg:translate-x-0 ${sidebarOpen ? "translate-x-0 w-64" : "translate-x-full lg:w-20"}`}>
         <div className="p-6 border-b border-slate-700 flex items-center justify-between min-h-[80px]">
             <h1 className={`text-xl font-bold whitespace-nowrap overflow-hidden transition-all duration-300 ${sidebarOpen ? "opacity-100" : "opacity-0 hidden lg:block lg:opacity-0 group-hover:opacity-100"}`}>Admin Panel</h1>
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-700 rounded hidden lg:block">
-                <ChevronRight className={sidebarOpen ? "rotate-180" : ""}/>
-            </button>
-            <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-slate-700 rounded lg:hidden">
-                <X/>
-            </button>
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-700 rounded hidden lg:block"><ChevronRight className={sidebarOpen ? "rotate-180" : ""}/></button>
+            <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-slate-700 rounded lg:hidden"><X/></button>
         </div>
-
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto overflow-x-hidden">
             {[{id: "qr", icon: QrCode, label: "إنشاء QR"}, {id: "report", icon: FileText, label: "دفاتر الغياب"}, {id: "students", icon: Users, label: "الطلاب"}].map(item => (
-                <button 
-                    key={item.id} 
-                    onClick={() => { setActiveTab(item.id); if(window.innerWidth < 1024) setSidebarOpen(false); }} 
-                    className={`flex items-center gap-3 w-full p-3 rounded-xl transition whitespace-nowrap ${activeTab === item.id ? "bg-blue-600" : "hover:bg-slate-800"}`}
-                >
-                    <item.icon size={22} className="min-w-[22px]"/> 
-                    <span className={`${!sidebarOpen && "lg:hidden"}`}>{item.label}</span>
-                </button>
+                <button key={item.id} onClick={() => { setActiveTab(item.id); if(window.innerWidth < 1024) setSidebarOpen(false); }} className={`flex items-center gap-3 w-full p-3 rounded-xl transition whitespace-nowrap ${activeTab === item.id ? "bg-blue-600" : "hover:bg-slate-800"}`}><item.icon size={22} className="min-w-[22px]"/> <span className={`${!sidebarOpen && "lg:hidden"}`}>{item.label}</span></button>
             ))}
         </nav>
-
-        <div className="p-4 border-t border-slate-700">
-            <button type="button" onClick={handleLogout} className="flex items-center gap-3 w-full p-3 text-red-400 hover:bg-slate-800 rounded-xl transition whitespace-nowrap overflow-hidden font-bold cursor-pointer">
-                <LogOut size={22} className="min-w-[22px]"/> 
-                <span className={`${!sidebarOpen && "lg:hidden"}`}>خروج</span>
-            </button>
-        </div>
+        <div className="p-4 border-t border-slate-700"><button type="button" onClick={handleLogout} className="flex items-center gap-3 w-full p-3 text-red-400 hover:bg-slate-800 rounded-xl transition whitespace-nowrap overflow-hidden font-bold cursor-pointer"><LogOut size={22} className="min-w-[22px]"/> <span className={`${!sidebarOpen && "lg:hidden"}`}>خروج</span></button></div>
       </aside>
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative w-full bg-gray-50">
-        {/* ... Main content ... */}
-        <div className="lg:hidden p-4 bg-white border-b flex justify-between items-center shadow-sm z-30 no-print flex-shrink-0">
-            <h1 className="font-bold text-slate-800">Admin Panel</h1>
-            <button onClick={() => setSidebarOpen(true)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-                <Menu size={24}/>
-            </button>
-        </div>
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative w-full bg-gray-50 print:h-auto print:overflow-visible">
+        <div className="lg:hidden p-4 bg-white border-b flex justify-between items-center shadow-sm z-30 no-print flex-shrink-0"><h1 className="font-bold text-slate-800">Admin Panel</h1><button onClick={() => setSidebarOpen(true)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"><Menu size={24}/></button></div>
 
-        <div className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden w-full">
-            {/* QR Tab */}
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden w-full print:overflow-visible print:h-auto">
             {activeTab === "qr" && (
-                <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col lg:flex-row border border-slate-100 mb-10">
-                    {/* ... QR Tab Content ... */}
+                <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col lg:flex-row border border-slate-100 mb-10 no-print">
                     <div className="p-6 md:p-8 lg:w-1/2 border-b lg:border-b-0 lg:border-l border-slate-100 flex flex-col justify-center">
                         {!currentLecture ? (
                             <div className="space-y-6">
@@ -331,10 +362,8 @@ const startLecture = async () => {
                 </div>
             )}
 
-            {/* Report Tab */}
             {activeTab === "report" && (
-                <div className="bg-white rounded-3xl shadow-lg border border-slate-200 overflow-hidden w-full mb-10">
-                    {/* ... Report Header ... */}
+                <div className="bg-white rounded-3xl shadow-lg border border-slate-200 overflow-hidden w-full mb-10 print:shadow-none print:border-none">
                     <div className="p-4 md:p-6 border-b flex flex-col xl:flex-row justify-between items-center gap-4 no-print bg-slate-50">
                         <div className="w-full xl:w-auto text-center xl:text-right">
                             <h2 className="text-2xl font-bold text-slate-800 flex items-center justify-center xl:justify-start gap-2"><FileText className="text-blue-600"/> دفاتر الغياب</h2>
@@ -351,99 +380,76 @@ const startLecture = async () => {
                         </div>
                     </div>
 
-                    <div id="printable-area" className="p-4 md:p-8 overflow-x-auto min-h-[400px]">
-                        {!reportSubject ? (<div className="text-center py-20 text-gray-400 bg-white"><Filter size={60} className="mx-auto mb-4 opacity-20"/><p className="text-xl font-bold opacity-50">يرجى اختيار المادة</p></div>) : groupedStudents.length === 0 ? (<div className="text-center p-10 text-gray-400 font-bold bg-gray-50 rounded-2xl">لا يوجد طلاب</div>) : (
+                    <div id="printable-area" className="p-4 md:p-8 min-h-[400px] print:p-0 print:overflow-visible">
+                        {!reportSubject ? (
+                            <div className="text-center py-20 text-gray-400 bg-white no-print"><Filter size={60} className="mx-auto mb-4 opacity-20"/><p className="text-xl font-bold opacity-50">يرجى اختيار المادة</p></div>
+                        ) : groupedStudents.length === 0 ? (
+                            <div className="text-center p-10 text-gray-400 font-bold bg-gray-50 rounded-2xl no-print">لا يوجد طلاب</div>
+                        ) : (
                             groupedStudents.map((group) => {
                                 const ledgerTitle = reportType === "SECTION" ? "سجل حضور السكاشن العملية" : reportType === "PHYSICAL" ? "سجل حضور المحاضرات النظرية" : "سجل الحضور الشامل";
                                 return (
-                                    <div key={group.division} className="page-break mb-10 w-full overflow-hidden">
-                                        <div className="print-header no-print-view min-w-[600px] overflow-x-auto pb-4">
+                                    <div key={group.division} className="page-break w-full block clear-both mb-10 print:mb-0">
+                                        <div className="pb-2 border-b-2 border-black mb-4">
                                             <h1 className="text-xl font-extrabold mb-1 text-center md:text-right">{ledgerTitle}</h1>
-                                            <h2 className="text-lg font-bold mb-2 text-slate-700 text-center md:text-right">{subjects.find(s=>s.id === reportSubject)?.name}</h2>
-                                            <div className="flex justify-between px-2 md:px-10 text-sm font-bold border-t border-black pt-2 mt-2"><span>الشعبة: {group.division}</span><span>الفصل الدراسي: {reportTerm}</span><span>عدد الجلسات: {allSubjectLectures.length}</span></div>
+                                            <h2 className="text-lg font-bold mb-1 text-slate-700 text-center md:text-right">{subjects.find(s=>s.id === reportSubject)?.name}</h2>
+                                            <div className="flex justify-between px-2 md:px-10 text-sm font-bold border-t border-black pt-1 mt-1"><span>الشعبة: {group.division}</span><span>الفصل الدراسي: {reportTerm}</span><span>عدد الجلسات المسجلة: {allSubjectLectures.length}</span></div>
                                         </div>
                                         
-                                        <div className="overflow-x-auto w-full pb-32">
-                                            <table className="w-full border-collapse border-slate-200 print-table min-w-[600px]" dir="rtl">
+                                        <div className="w-full pb-4 print:pb-0 overflow-x-auto print:overflow-visible">
+                                            <table className="print-table w-full border-collapse border-slate-200" dir="rtl">
                                                 <thead>
                                                     <tr className="bg-slate-100 print:bg-gray-200">
-                                                        <th className="border p-2 w-16 text-xs bg-slate-200">رقم الكشف</th>
-                                                        <th className="border p-2 text-right w-40 min-w-[150px]">اسم الطالب</th>
-                                                        {allSubjectLectures.map((lec: any) => (
-                                                            <th key={lec.id} className="border p-1 w-10 relative align-bottom group">
-                                                                <div className="relative no-print flex justify-center mb-1">
-                                                                    <button 
-                                                                        onClick={(e) => toggleMenu(e, lec.id)}
-                                                                        className="p-1 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition"
-                                                                    >
-                                                                        <MoreVertical size={16} />
-                                                                    </button>
-                                                                    {activeMenuId === lec.id && (
-                                                                        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px] animate-in fade-in zoom-in duration-200">
-                                                                                <button 
-                                                                                    onClick={(e) => { 
-                                                                                        e.stopPropagation(); 
-                                                                                        setEditLectureForm({id: lec.id, topic: lec.topic, date: lec.date.split('T')[0]}); 
-                                                                                        setShowEditLectureModal(true); 
-                                                                                        setActiveMenuId(null);
-                                                                                    }} 
-                                                                                    className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"
-                                                                                >
-                                                                                    <Edit size={14}/> تعديل الجلسة
-                                                                                </button>
-                                                                                <button 
-                                                                                    onClick={(e) => { 
-                                                                                        e.stopPropagation(); 
-                                                                                        setConfirmModal({isOpen: true, type: 'LECTURE', id: lec.id}); 
-                                                                                        setActiveMenuId(null);
-                                                                                    }} 
-                                                                                    className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"
-                                                                                >
-                                                                                    <Trash2 size={14}/> حذف الجلسة
-                                                                                </button>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-
-                                                                <div className="flex flex-col items-center justify-end h-auto py-1">
-                                                                    <span className="text-[10px] font-bold text-gray-500 mb-1 no-print">
-                                                                        {reportType === "ALL" && (lec.type === "SECTION" ? "(س)" : "(م)")}
-                                                                    </span>
-                                                                    <span className="text-[10px] font-bold text-center leading-tight whitespace-nowrap">
-                                                                        {new Date(lec.date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' })}
-                                                                    </span>
-                                                                </div>
-                                                            </th>
-                                                        ))}
-                                                        {Array.from({length: Math.max(0, 12 - allSubjectLectures.length)}).map((_, i) => (<th key={i} className="border p-1 w-8"></th>))}
+                                                        <th className="border p-1 w-12 text-xs bg-slate-200 align-middle">م</th>
+                                                        <th className="border p-1 text-right w-48 min-w-[150px] align-middle">اسم الطالب</th>
+                                                        
+                                                        {Array.from({ length: 16 }).map((_, i) => {
+                                                            const lec = allSubjectLectures[i];
+                                                            return (
+                                                                <th key={i} className="border p-0.5 w-10 relative align-bottom group">
+                                                                    {lec ? (
+                                                                        <>
+                                                                            <div className="relative no-print flex justify-center mb-1">
+                                                                                <button onClick={(e) => toggleMenu(e, lec.id)} className="p-1 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition"><MoreVertical size={16} /></button>
+                                                                                {activeMenuId === lec.id && (
+                                                                                    <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px] animate-in fade-in zoom-in duration-200">
+                                                                                        <button onClick={(e) => { e.stopPropagation(); setEditLectureForm({id: lec.id, topic: lec.topic, date: lec.date.split('T')[0]}); setShowEditLectureModal(true); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"><Edit size={14}/> تعديل</button>
+                                                                                        <button onClick={(e) => { e.stopPropagation(); setConfirmModal({isOpen: true, type: 'LECTURE', id: lec.id}); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"><Trash2 size={14}/> حذف</button>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex flex-col items-center justify-end h-auto py-1">
+                                                                                <span className="text-[8px] font-bold text-gray-500 mb-1 no-print">{reportType === "ALL" && (lec.type === "SECTION" ? "(س)" : "(م)")}</span>
+                                                                                <span className="text-[10px] font-bold text-center leading-tight whitespace-nowrap">{new Date(lec.date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' })}</span>
+                                                                            </div>
+                                                                        </>
+                                                                    ) : <span className="block h-8"></span>}
+                                                                </th>
+                                                            );
+                                                        })}
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {group.students.map((student: any) => (
-                                                        <tr key={student.id} className="hover:bg-slate-50">
-                                                            <td className="border p-2 font-bold text-center bg-slate-50">{student.classNumber || "-"}</td>
-                                                            <td className="border p-2 text-right font-medium text-xs whitespace-nowrap">
-                                                                {student.name}
-                                                                <br/>
-                                                                <span className="text-[9px] text-gray-400 cursor-pointer hover:text-blue-600 no-print id-copy-section" title="اضغط للنسخ" onClick={() => {navigator.clipboard.writeText(student.id); showNotify("تم نسخ ID الطالب", "success")}}>
-                                                                    ID: {student.id.substring(0, 6)}... <Copy size={8} className="inline"/>
-                                                                </span>
-                                                            </td>
-                                                            {allSubjectLectures.map((lec: any) => { 
-                                                                const isPresent = (student.attendance || []).some((a:any) => a.lectureId === lec.id); 
+                                                        <tr key={student.id} className="hover:bg-slate-50 print:leading-tight">
+                                                            <td className="border p-1 text-center font-bold text-xs bg-slate-50">{student.classNumber || "-"}</td>
+                                                            <td className="border p-1 text-right font-medium text-xs whitespace-nowrap px-2">{student.name}</td>
+                                                            {Array.from({ length: 16 }).map((_, i) => {
+                                                                const lec = allSubjectLectures[i];
+                                                                const isPresent = lec ? (student.attendance || []).some((a:any) => a.lectureId === lec.id) : false;
                                                                 return (
-                                                                    <td key={lec.id} className={`border p-1 cursor-pointer transition select-none text-center ${isPresent ? 'bg-black text-white print:bg-transparent print:text-black' : ''}`} onClick={() => toggleAttendance(student.id, lec.id, isPresent)}>
-                                                                        {isPresent ? <span className="check-mark">✔</span> : ""}
-                                                                    </td>
-                                                                ); 
+                                                                    <td key={i} className={`border p-0.5 text-center font-bold text-sm cursor-pointer transition select-none ${isPresent ? 'bg-black text-white print:bg-transparent print:text-black' : ''}`} onClick={() => lec && toggleAttendance(student.id, lec.id, isPresent)}>{isPresent ? "✔" : ""}</td>
+                                                                );
                                                             })}
-                                                            {Array.from({length: Math.max(0, 12 - allSubjectLectures.length)}).map((_, i) => (<td key={i} className="border p-1"></td>))}
                                                         </tr>
                                                     ))}
                                                 </tbody>
                                             </table>
                                         </div>
-                                        <div className="mt-4 flex justify-between text-xs px-4 w-full"><p>تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p><p className="font-bold">توقيع عضو هيئة التدريس: .....................</p></div>
+                                        <div className="mt-2 flex justify-between text-[10px] font-bold px-4">
+                                            <p>تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p>
+                                            <p>توقيع عضو هيئة التدريس: .....................</p>
+                                        </div>
                                     </div>
                                 );
                             })
@@ -452,9 +458,8 @@ const startLecture = async () => {
                 </div>
             )}
 
-            {/* Students Tab */}
             {activeTab === "students" && (
-                <div className="bg-white p-4 md:p-6 rounded-3xl shadow border border-slate-200 mb-10">
+                <div className="bg-white p-4 md:p-6 rounded-3xl shadow border border-slate-200 mb-10 no-print">
                    <div className="flex flex-col md:flex-row justify-between mb-6 gap-4"><div className="relative w-full md:w-64"><input className="border border-gray-300 p-2 pr-4 rounded-xl w-full outline-none focus:ring-2 focus:ring-blue-500" placeholder="بحث..." onChange={e=>setSearchTerm(e.target.value)}/></div><button onClick={()=>{setShowStudentModal(true); setIsEditingStudent(false); setStudentForm({ id: "", name: "", email: "", password: "", division: "", classNumber: "" })}} className="bg-blue-600 text-white px-4 py-2 rounded-xl flex gap-2 hover:bg-blue-700 font-bold items-center justify-center w-full md:w-auto"><Plus size={18}/> إضافة طالب</button></div>
                    <div className="overflow-x-auto w-full pb-32">
                        <table className="w-full text-right min-w-[600px]">
@@ -487,8 +492,16 @@ const startLecture = async () => {
                                                    <button onClick={(e) => toggleMenu(e, `student-${s.id}`)} className="p-2 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition"><MoreVertical size={18}/></button>
                                                    {activeMenuId === `student-${s.id}` && (
                                                        <div className="absolute top-8 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px] animate-in fade-in zoom-in duration-200">
-                                                               <button onClick={(e)=>{ e.stopPropagation(); setStudentForm(s); setIsEditingStudent(true); setShowStudentModal(true); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"><Edit size={14}/> تعديل</button>
-                                                               <button onClick={(e)=>{ e.stopPropagation(); setConfirmModal({isOpen: true, type: 'STUDENT', id: s.id}); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"><Trash2 size={14}/> حذف</button>
+                                                           {/* 🔥🔥🔥 التعديل 1: زر التعديل (بيفضي الباسورد) 🔥🔥🔥 */}
+                                                           <button onClick={(e)=>{ 
+                                                               e.stopPropagation(); 
+                                                               setStudentForm({ ...s, password: "" }); // <--- هنا السر!
+                                                               setIsEditingStudent(true); 
+                                                               setShowStudentModal(true); 
+                                                               setActiveMenuId(null); 
+                                                           }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"><Edit size={14}/> تعديل</button>
+                                                           
+                                                           <button onClick={(e)=>{ e.stopPropagation(); setConfirmModal({isOpen: true, type: 'STUDENT', id: s.id}); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"><Trash2 size={14}/> حذف</button>
                                                        </div>
                                                    )}
                                                </div>
@@ -503,11 +516,11 @@ const startLecture = async () => {
         </div>
       </main>
 
-      {/* --- Modals --- */}
-      {showManualLectureModal && (<div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm"><div className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-2xl animate-in zoom-in"><h3 className="font-bold text-xl mb-4">إضافة عمود يدوي</h3><form onSubmit={handleCreateManualLecture} className="space-y-4"><div><label className="text-sm font-bold block mb-1">نوع الجلسة</label><select className="w-full border p-2 rounded-xl" value={manualLectureForm.type} onChange={e=>setManualLectureForm({...manualLectureForm, type: e.target.value})}><option value="PHYSICAL">محاضرة</option><option value="SECTION">سكشن</option></select></div><div><label className="text-sm font-bold block mb-1">التاريخ</label><input type="date" className="w-full border p-2 rounded-xl" value={manualLectureForm.date} onChange={e=>setManualLectureForm({...manualLectureForm, date: e.target.value})}/></div><div><label className="text-sm font-bold block mb-1">عنوان مخصص (اختياري)</label><input placeholder="مثال: كويز 1" className="w-full border p-2 rounded-xl" value={manualLectureForm.topic} onChange={e=>setManualLectureForm({...manualLectureForm, topic: e.target.value})}/></div><div className="flex gap-2"><button type="button" onClick={()=>setShowManualLectureModal(false)} className="flex-1 bg-gray-100 py-2 rounded-xl">إلغاء</button><button className="flex-1 bg-blue-600 text-white py-2 rounded-xl">إضافة</button></div></form></div></div>)}
-      {showEditLectureModal && (<div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm"><div className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-2xl animate-in zoom-in"><h3 className="font-bold text-xl mb-4">تعديل الجلسة</h3><form onSubmit={handleUpdateLecture} className="space-y-4"><div><label className="text-sm font-bold block mb-1">عنوان الجلسة</label><input className="w-full border p-2 rounded-xl" value={editLectureForm.topic} onChange={e=>setEditLectureForm({...editLectureForm, topic: e.target.value})}/></div><div><label className="text-sm font-bold block mb-1">التاريخ</label><input type="date" className="w-full border p-2 rounded-xl" value={editLectureForm.date} onChange={e=>setEditLectureForm({...editLectureForm, date: e.target.value})}/></div><div className="flex gap-2"><button type="button" onClick={()=>setShowEditLectureModal(false)} className="flex-1 bg-gray-100 py-2 rounded-xl">إلغاء</button><button className="flex-1 bg-blue-600 text-white py-2 rounded-xl">حفظ</button></div></form></div></div>)}
-      {showStudentModal && (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4 backdrop-blur-sm"><div className="bg-white p-8 rounded-3xl w-full max-w-md animate-in zoom-in duration-200 shadow-2xl"><div className="flex justify-between items-center mb-6"><h3 className="font-bold text-2xl text-slate-800">{isEditingStudent ? "تعديل" : "جديد"}</h3><button onClick={()=>setShowStudentModal(false)}><X size={20}/></button></div><form onSubmit={handleSaveStudent} className="space-y-4"><div><label className="text-sm font-bold text-gray-700">الاسم</label><input required className="w-full border p-3 rounded-xl" value={studentForm.name} onChange={e=>setStudentForm({...studentForm, name:e.target.value})}/></div><div className="flex gap-4"><div className="flex-1"><label className="text-sm font-bold">رقم الكشف</label><input required className="w-full border p-3 rounded-xl" value={studentForm.classNumber} onChange={e=>setStudentForm({...studentForm, classNumber:e.target.value})}/></div><div className="flex-1"><label className="text-sm font-bold">الشعبة</label><select required className="w-full border p-3 rounded-xl" value={studentForm.division} onChange={e=>setStudentForm({...studentForm, division:e.target.value})}><option value="">اختر</option> {[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n}</option>)}</select></div></div><div><label className="text-sm font-bold">الايميل</label><input required className="w-full border p-3 rounded-xl" value={studentForm.email} onChange={e=>setStudentForm({...studentForm, email:e.target.value})}/></div><div><label className="text-sm font-bold">كلمة المرور</label><input required className="w-full border p-3 rounded-xl" value={studentForm.password} onChange={e=>setStudentForm({...studentForm, password:e.target.value})}/></div><button className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold mt-2">حفظ</button></form></div></div>)}
-      {confirmModal.isOpen && (<div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4 backdrop-blur-sm"><div className="bg-white rounded-3xl shadow-2xl p-6 w-[400px] animate-in zoom-in text-center"><h3 className="text-xl font-bold mb-2">{confirmModal.type === 'STUDENT' ? 'حذف الطالب' : 'حذف المحاضرة'}</h3><div className="flex gap-3 mt-6"><button onClick={() => setConfirmModal({isOpen: false, type: null, id: null})} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">إلغاء</button><button onClick={confirmModal.type === 'STUDENT' ? handleDeleteStudent : handleDeleteLecture} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">تأكيد الحذف</button></div></div></div>)}
+      {/* --- Modals (All Hidden on Print via CSS) --- */}
+      {showManualLectureModal && (<div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm no-print"><div className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-2xl animate-in zoom-in"><h3 className="font-bold text-xl mb-4">إضافة عمود يدوي</h3><form onSubmit={handleCreateManualLecture} className="space-y-4"><div><label className="text-sm font-bold block mb-1">نوع الجلسة</label><select className="w-full border p-2 rounded-xl" value={manualLectureForm.type} onChange={e=>setManualLectureForm({...manualLectureForm, type: e.target.value})}><option value="PHYSICAL">محاضرة</option><option value="SECTION">سكشن</option></select></div><div><label className="text-sm font-bold block mb-1">التاريخ</label><input type="date" className="w-full border p-2 rounded-xl" value={manualLectureForm.date} onChange={e=>setManualLectureForm({...manualLectureForm, date: e.target.value})}/></div><div><label className="text-sm font-bold block mb-1">عنوان مخصص (اختياري)</label><input placeholder="مثال: كويز 1" className="w-full border p-2 rounded-xl" value={manualLectureForm.topic} onChange={e=>setManualLectureForm({...manualLectureForm, topic: e.target.value})}/></div><div className="flex gap-2"><button type="button" onClick={()=>setShowManualLectureModal(false)} className="flex-1 bg-gray-100 py-2 rounded-xl">إلغاء</button><button className="flex-1 bg-blue-600 text-white py-2 rounded-xl">إضافة</button></div></form></div></div>)}
+      {showEditLectureModal && (<div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm no-print"><div className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-2xl animate-in zoom-in"><h3 className="font-bold text-xl mb-4">تعديل الجلسة</h3><form onSubmit={handleUpdateLecture} className="space-y-4"><div><label className="text-sm font-bold block mb-1">عنوان الجلسة</label><input className="w-full border p-2 rounded-xl" value={editLectureForm.topic} onChange={e=>setEditLectureForm({...editLectureForm, topic: e.target.value})}/></div><div><label className="text-sm font-bold block mb-1">التاريخ</label><input type="date" className="w-full border p-2 rounded-xl" value={editLectureForm.date} onChange={e=>setEditLectureForm({...editLectureForm, date: e.target.value})}/></div><div className="flex gap-2"><button type="button" onClick={()=>setShowEditLectureModal(false)} className="flex-1 bg-gray-100 py-2 rounded-xl">إلغاء</button><button className="flex-1 bg-blue-600 text-white py-2 rounded-xl">حفظ</button></div></form></div></div>)}
+      {showStudentModal && (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4 backdrop-blur-sm no-print"><div className="bg-white p-8 rounded-3xl w-full max-w-md animate-in zoom-in duration-200 shadow-2xl"><div className="flex justify-between items-center mb-6"><h3 className="font-bold text-2xl text-slate-800">{isEditingStudent ? "تعديل" : "جديد"}</h3><button onClick={()=>setShowStudentModal(false)}><X size={20}/></button></div><form onSubmit={handleSaveStudent} className="space-y-4"><div><label className="text-sm font-bold text-gray-700">الاسم</label><input required className="w-full border p-3 rounded-xl" value={studentForm.name} onChange={e=>setStudentForm({...studentForm, name:e.target.value})}/></div><div className="flex gap-4"><div className="flex-1"><label className="text-sm font-bold">رقم الكشف</label><input required className="w-full border p-3 rounded-xl" value={studentForm.classNumber} onChange={e=>setStudentForm({...studentForm, classNumber:e.target.value})}/></div><div className="flex-1"><label className="text-sm font-bold">الشعبة</label><select required className="w-full border p-3 rounded-xl" value={studentForm.division} onChange={e=>setStudentForm({...studentForm, division:e.target.value})}><option value="">اختر</option> {[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n}</option>)}</select></div></div><div><label className="text-sm font-bold">الايميل</label><input required className="w-full border p-3 rounded-xl" value={studentForm.email} onChange={e=>setStudentForm({...studentForm, email:e.target.value})}/></div><div><label className="text-sm font-bold">كلمة المرور</label><input required className="w-full border p-3 rounded-xl" value={studentForm.password} onChange={e=>setStudentForm({...studentForm, password:e.target.value})}/></div><button className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold mt-2">حفظ</button></form></div></div>)}
+      {confirmModal.isOpen && (<div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4 backdrop-blur-sm no-print"><div className="bg-white rounded-3xl shadow-2xl p-6 w-[400px] animate-in zoom-in text-center"><h3 className="text-xl font-bold mb-2">{confirmModal.type === 'STUDENT' ? 'حذف الطالب' : 'حذف المحاضرة'}</h3><div className="flex gap-3 mt-6"><button onClick={() => setConfirmModal({isOpen: false, type: null, id: null})} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">إلغاء</button><button onClick={confirmModal.type === 'STUDENT' ? handleDeleteStudent : handleDeleteLecture} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">تأكيد الحذف</button></div></div></div>)}
     </div>
   );
 }

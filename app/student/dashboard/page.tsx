@@ -38,14 +38,12 @@ export default function StudentDashboard() {
     setIsClient(true);
     const stored = localStorage.getItem("user");
     if (!stored) {
-      // ✅ إعادة توجيه إجباري للخروج في حالة عدم وجود بيانات
       window.location.href = "/login?out=true";
       return;
     }
     const userData = JSON.parse(stored);
     setUser(userData);
     
-    // ✅ ميزة جديدة: فتح قائمة الأفاتار تلقائياً لو مفيش صورة
     if (!userData.image) {
         setShowAvatarSelector(true);
     }
@@ -54,7 +52,17 @@ export default function StudentDashboard() {
     generateRandomAvatars();
   }, []);
 
-  // 🔥 دالة بناء التقرير وحساب الغياب 🔥
+  // 🔊 دالة تشغيل الصوت (تمت إضافتها)
+  const playSuccessSound = () => {
+    try {
+        const audio = new Audio('/success.mp3'); // المسار بناءً على صورتك
+        audio.volume = 0.5;
+        audio.play().catch(e => console.error("Audio playback failed", e));
+    } catch (error) {
+        console.error("Error creating audio", error);
+    }
+  };
+
   const buildFullReport = async (userData: any) => {
     setIsReportLoading(true);
     try {
@@ -65,9 +73,7 @@ export default function StudentDashboard() {
         setAvailableTerms(terms);
         if (!terms.includes(selectedTerm) && terms.length > 0) setSelectedTerm(terms[0]);
 
-        // استخدام Set للبحث السريع عن المحاضرات التي تم حضورها
         const attendedLectureIds = new Set((userData.attendance || []).map((a: any) => a.lectureId));
-        
         const now = new Date();
 
         const report = allSubjects.map((subject: any) => {
@@ -79,9 +85,7 @@ export default function StudentDashboard() {
                 subject.lectures.forEach((lecture: any) => {
                     const lectureDate = new Date(lecture.date);
                     const isSection = lecture.type === 'SECTION';
-                    
                     const didAttend = attendedLectureIds.has(lecture.id);
-                    // أي محاضرة تاريخها فات أو اليوم
                     const isPastOrToday = lectureDate <= now;
 
                     if (isPastOrToday) {
@@ -103,7 +107,6 @@ export default function StudentDashboard() {
                 });
             }
 
-            // ترتيب المحاضرات (الأحدث أولاً)
             detailedLectures.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
             return {
@@ -117,7 +120,6 @@ export default function StudentDashboard() {
 
         setSubjectsList(report);
 
-        // الإحصائيات العامة
         const totalItems = report.reduce((acc: number, s: any) => acc + s.lecStats.total + s.secStats.total, 0);
         const totalPres = report.reduce((acc: number, s: any) => acc + s.lecStats.present + s.secStats.present, 0);
         const percentage = totalItems > 0 ? Math.round((totalPres / totalItems) * 100) : 0;
@@ -137,55 +139,53 @@ export default function StudentDashboard() {
     setMsg({ text, type }); setTimeout(() => setMsg(null), 4000);
   };
 
-  // 🔥 دالة المسح (Scan) مع التحديث الفوري 🔥
-// ابحث عن دالة handleScan واستبدلها بهذا
-const handleScan = async (result: string) => {
-  if (!result || loading || scanResult || !user?.id) return;
-  setLoading(true);
+  // 🔥 دالة المسح المعدلة مع الصوت والموقع 🔥
+  const handleScan = async (result: string) => {
+    if (!result || loading || scanResult || !user?.id) return;
+    setLoading(true);
 
-  // 🔥 طلب موقع الطالب
-  navigator.geolocation.getCurrentPosition(
-    async (position) => {
-      const { latitude, longitude } = position.coords;
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
 
-      try {
-        const res = await fetch("/api/scan", { 
-          method: "POST", 
-          headers: { "Content-Type": "application/json" }, 
-          body: JSON.stringify({ 
-            userId: user.id, 
-            qrCode: result,
-            lat: latitude, // 🔥 إرسال الموقع
-            lng: longitude
-          }) 
-        });
-        const data = await res.json();
-        
-        if (res.ok) {
-          showNotification("تم تسجيل الحضور بنجاح! 🎉", 'success');
-          // ... (باقي منطق التحديث المحلي الموجود عندك)
-          const newLectureId = data.lectureId || data.id; 
-          if (newLectureId) {
-              const updatedUser = { ...user, attendance: [...(user.attendance || []), { lectureId: newLectureId }] };
-              setUser(updatedUser); 
-              localStorage.setItem("user", JSON.stringify(updatedUser));
-              await buildFullReport(updatedUser);
+        try {
+          const res = await fetch("/api/scan", { 
+            method: "POST", 
+            headers: { "Content-Type": "application/json" }, 
+            body: JSON.stringify({ 
+              userId: user.id, 
+              qrCode: result,
+              lat: latitude, 
+              lng: longitude
+            }) 
+          });
+          const data = await res.json();
+          
+          if (res.ok) {
+            playSuccessSound(); // 🔊 تشغيل الصوت هنا
+            showNotification("تم تسجيل الحضور بنجاح! 🎉", 'success');
+            
+            const newLectureId = data.lectureId || data.id; 
+            if (newLectureId) {
+                const updatedUser = { ...user, attendance: [...(user.attendance || []), { lectureId: newLectureId }] };
+                setUser(updatedUser); 
+                localStorage.setItem("user", JSON.stringify(updatedUser));
+                await buildFullReport(updatedUser);
+            }
+            setTimeout(() => setActiveTab("dashboard"), 1500);
+          } else {
+            showNotification(data.message || "خطأ في تسجيل الحضور", 'error');
           }
-          setTimeout(() => setActiveTab("dashboard"), 1500);
-        } else {
-          showNotification(data.message || "خطأ في تسجيل الحضور", 'error');
-        }
-      } catch (e) { showNotification("فشل الاتصال", 'error'); } 
-      finally { setLoading(false); setScanResult(null); }
-    },
-    (error) => {
-      setLoading(false);
-      showNotification("يجب فتح الموقع (GPS) لتسجيل الحضور", 'error');
-    }
-  );
-};
+        } catch (e) { showNotification("فشل الاتصال", 'error'); } 
+        finally { setLoading(false); setScanResult(null); }
+      },
+      (error) => {
+        setLoading(false);
+        showNotification("يجب فتح الموقع (GPS) لتسجيل الحضور", 'error');
+      }
+    );
+  };
 
-  // 🔥 دوال الأفاتار (توليد + اختيار) 🔥
   const generateRandomAvatars = () => setAvatarSeeds(Array.from({ length: 6 }, () => Math.random().toString(36).substring(7)));
   
   const handleSelectAvatar = async (seed: string) => {
@@ -197,7 +197,7 @@ const handleScan = async (result: string) => {
         setUser(updatedUser); 
         localStorage.setItem("user", JSON.stringify(updatedUser));
         showNotification("تم تحديث الصورة", 'success'); 
-        setShowAvatarSelector(false); // إغلاق القائمة
+        setShowAvatarSelector(false);
       } catch(e){
         showNotification("حدث خطأ", 'error');
       } finally {setLoading(false);}
@@ -211,11 +211,10 @@ const handleScan = async (result: string) => {
       } catch(e){} finally {setLoading(false);}
   };
 
-  // 🔥 دالة الخروج النهائية 🔥
   const handleLogout = () => {
     localStorage.clear();
     document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT";
-    window.location.href = "/login?out=true"; // Force Reload
+    window.location.href = "/login?out=true";
   };
 
   if (!user || !isClient) return <div className="h-screen bg-black flex items-center justify-center"><div className="w-10 h-10 border-4 border-zinc-800 border-t-white rounded-full animate-spin"></div></div>;
@@ -223,7 +222,6 @@ const handleScan = async (result: string) => {
   return (
     <div className="min-h-screen bg-zinc-950 text-white font-sans overflow-hidden select-none relative" dir="rtl">
       
-      {/* Background & Header */}
       <div className="fixed top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-900/20 rounded-full blur-[120px] pointer-events-none" />
       <div className="fixed bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-900/20 rounded-full blur-[120px] pointer-events-none" />
       {msg && <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl flex items-center gap-3 shadow-2xl backdrop-blur-md border animate-in fade-in slide-in-from-top-4 duration-300 ${msg.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}><span className="text-xs font-bold">{msg.text}</span></div>}
@@ -248,11 +246,8 @@ const handleScan = async (result: string) => {
 
       <main className="px-5 pb-32 relative z-10 h-full overflow-y-auto scrollbar-hide">
         
-        {/* Dashboard Tab */}
         {activeTab === "dashboard" && (
           <div className="space-y-5 animate-in fade-in zoom-in duration-500">
-            
-            {/* Progress Card */}
             <div className="w-full bg-gradient-to-br from-zinc-900/80 to-zinc-900/40 border border-white/10 p-6 rounded-[2.5rem] relative overflow-hidden backdrop-blur-xl">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl" />
               <div className="flex justify-between items-center">
@@ -271,7 +266,6 @@ const handleScan = async (result: string) => {
               </div>
             </div>
 
-            {/* Filters */}
             <div className="w-full">
               <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 shrink-0"><Filter size={14}/></div>
@@ -286,7 +280,6 @@ const handleScan = async (result: string) => {
                 ))}
               </div>
 
-              {/* Subject List */}
               <div className="space-y-3">
                 {isReportLoading ? (
                   <div className="text-center py-8 border border-dashed border-zinc-800 rounded-[1.5rem]"><p className="text-xs text-zinc-500 font-bold animate-pulse">جاري تحميل البيانات...</p></div>
@@ -343,11 +336,9 @@ const handleScan = async (result: string) => {
           </div>
         )}
 
-        {/* 🔥🔥🔥 Scan Tab الأبيض 🔥🔥🔥 */}
         {activeTab === "scan" && (
             <div className="h-[75vh] flex flex-col items-center justify-center animate-in fade-in slide-in-from-bottom-8 duration-500 relative">
              
-             {/* التوقيع أعلى اليسار */}
              <div className="fixed top-6 left-6 opacity-80 hover:opacity-100 transition-opacity duration-500 z-50 pointer-events-none">
                 <div className="flex flex-col gap-0.5 text-[8px] font-black uppercase tracking-[0.2em] text-zinc-500">
                     <span>Designed &</span>
@@ -355,7 +346,6 @@ const handleScan = async (result: string) => {
                 </div>
              </div>
 
-             {/* Scanner Container (White Theme) */}
              <div className="relative w-full max-w-md aspect-square rounded-[3rem] p-1.5 bg-gradient-to-br from-white/20 via-zinc-900 to-white/10 shadow-[0_0_50px_-10px_rgba(255,255,255,0.2)]">
                 <div className="absolute -inset-1 bg-gradient-to-r from-white to-zinc-400 rounded-[3.2rem] opacity-20 blur-xl animate-pulse pointer-events-none"></div>
 
@@ -369,7 +359,6 @@ const handleScan = async (result: string) => {
                                 constraints={{ facingMode: 'environment' }} 
                             />
                             
-                            {/* Overlay UI (White) */}
                             <div className="absolute inset-0 bg-black/10 z-20 pointer-events-none">
                                 <div className="absolute top-8 left-8 w-16 h-16 border-t-[6px] border-l-[6px] border-white rounded-tl-[2rem] shadow-[0_0_20px_white]"></div>
                                 <div className="absolute top-8 right-8 w-16 h-16 border-t-[6px] border-r-[6px] border-white rounded-tr-[2rem] shadow-[0_0_20px_white]"></div>
@@ -408,13 +397,11 @@ const handleScan = async (result: string) => {
 
       </main>
 
-      {/* Dock */}
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-full p-2 flex gap-2 shadow-2xl z-50">
         <button onClick={() => setActiveTab("dashboard")} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${activeTab === "dashboard" ? "bg-white text-black shadow-lg scale-110" : "text-zinc-500 hover:bg-white/5"}`}><LayoutGrid size={22} /></button>
         <button onClick={() => setActiveTab("scan")} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${activeTab === "scan" ? "bg-white text-black shadow-lg shadow-white/40 scale-110" : "text-zinc-500 hover:bg-white/5"}`}><ScanLine size={24} /></button>
       </div>
 
-      {/* Subject Details Modal */}
       {selectedSubjectDetails && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] flex items-end sm:items-center justify-center animate-in fade-in duration-300" onClick={() => setSelectedSubjectDetails(null)}>
             <div className="bg-zinc-900 w-full max-w-md rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 border-t sm:border border-white/10 shadow-2xl animate-in slide-in-from-bottom-20 duration-300 h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -466,7 +453,6 @@ const handleScan = async (result: string) => {
         </div>
       )}
 
-      {/* Edit & Avatar Modals */}
       {(isEditing || showAvatarSelector) && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-end sm:items-center justify-center animate-in fade-in duration-300">
            {showAvatarSelector ? (
