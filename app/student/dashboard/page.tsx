@@ -52,10 +52,9 @@ export default function StudentDashboard() {
     generateRandomAvatars();
   }, []);
 
-  // 🔊 دالة تشغيل الصوت (تمت إضافتها)
   const playSuccessSound = () => {
     try {
-        const audio = new Audio('/success.mp3'); // المسار بناءً على صورتك
+        const audio = new Audio('/success.mp3'); 
         audio.volume = 0.5;
         audio.play().catch(e => console.error("Audio playback failed", e));
     } catch (error) {
@@ -63,6 +62,7 @@ export default function StudentDashboard() {
     }
   };
 
+  // 🔥🔥 دالة بناء التقرير المعدلة (تتحقق من الشعبة) 🔥🔥
   const buildFullReport = async (userData: any) => {
     setIsReportLoading(true);
     try {
@@ -88,7 +88,21 @@ export default function StudentDashboard() {
                     const didAttend = attendedLectureIds.has(lecture.id);
                     const isPastOrToday = lectureDate <= now;
 
-                    if (isPastOrToday) {
+                    // 🔥 التحقق: هل المحاضرة مخصصة لشعبة الطالب؟
+                    let isForStudent = true;
+                    if (lecture.allowedDivisions) {
+                        const allowed = lecture.allowedDivisions.split(','); // ["1", "2"]
+                        // نتأكد إن شعبة الطالب موجودة في القائمة
+                        if (!allowed.includes(String(userData.division))) {
+                            isForStudent = false;
+                        }
+                    }
+
+                    // الشرط المعدل:
+                    // نحسب المحاضرة فقط لو:
+                    // 1. التاريخ فات أو النهاردة
+                    // 2. AND (المحاضرة مخصصة لشعبته OR هو حضرها بالفعل بالغلط)
+                    if (isPastOrToday && (isForStudent || didAttend)) {
                         if (isSection) {
                             secTotal++;
                             if (didAttend) secPresent++;
@@ -139,7 +153,6 @@ export default function StudentDashboard() {
     setMsg({ text, type }); setTimeout(() => setMsg(null), 4000);
   };
 
-  // 🔥 دالة المسح المعدلة مع الصوت والموقع 🔥
   const handleScan = async (result: string) => {
     if (!result || loading || scanResult || !user?.id) return;
     setLoading(true);
@@ -162,7 +175,7 @@ export default function StudentDashboard() {
           const data = await res.json();
           
           if (res.ok) {
-            playSuccessSound(); // 🔊 تشغيل الصوت هنا
+            playSuccessSound(); 
             showNotification("تم تسجيل الحضور بنجاح! 🎉", 'success');
             
             const newLectureId = data.lectureId || data.id; 

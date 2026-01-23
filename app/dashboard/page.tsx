@@ -25,6 +25,10 @@ export default function Dashboard() {
   const [selectedSubject, setSelectedSubject] = useState("");
   const [lectureType, setLectureType] = useState("PHYSICAL");
   const [electiveName, setElectiveName] = useState(""); 
+  
+  // 🔥 حالة تخزين الشعب المختارة (للـ QR)
+  const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
+
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null); 
   
   // Session
@@ -35,11 +39,13 @@ export default function Dashboard() {
   const [reportTerm, setReportTerm] = useState("6");
   const [reportSubject, setReportSubject] = useState("");
   const [reportType, setReportType] = useState("ALL"); 
+  
+  // 🔥🔥🔥 فلتر مجموعات الشعب للطباعة (الجديد) 🔥🔥🔥
+  const [reportDivisionGroup, setReportDivisionGroup] = useState("ALL");
 
   // Modals
   const [showStudentModal, setShowStudentModal] = useState(false);
   const [isEditingStudent, setIsEditingStudent] = useState(false);
-  // لاحظ: الـ state هنا بيشيل البيانات اللي بتظهر في المودال
   const [studentForm, setStudentForm] = useState<{ id: string, name: string, email: string, password?: string, division: string, classNumber: string }>({ id: "", name: "", email: "", password: "", division: "", classNumber: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [showManualLectureModal, setShowManualLectureModal] = useState(false);
@@ -103,7 +109,16 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => { setSelectedSubject(""); }, [selectedTerm, lectureType]);
+  useEffect(() => { 
+      setSelectedSubject(""); 
+      setSelectedDivisions([]); 
+  }, [selectedTerm, lectureType]);
+
+  const toggleDivision = (div: string) => {
+      setSelectedDivisions(prev => 
+          prev.includes(div) ? prev.filter(d => d !== div) : [...prev, div]
+      );
+  };
 
   const filteredSubjectsQR = (subjects || []).filter(s => {
       if (s.term !== selectedTerm) return false;
@@ -141,6 +156,13 @@ export default function Dashboard() {
         .sort((a, b) => parseInt(a.classNumber || "0") - parseInt(b.classNumber || "0"))
   })).filter(g => g.students.length > 0);
 
+  // 🔥🔥🔥 تصفية المجموعات بناءً على الفلتر الجديد (1-2، 3-4، 5-6) 🔥🔥🔥
+  const filteredGroupedStudents = groupedStudents.filter(g => {
+      if (reportDivisionGroup === "ALL") return true;
+      const targetDivisions = reportDivisionGroup.split("-"); // يحول "1-2" إلى ["1", "2"]
+      return targetDivisions.includes(g.division);
+  });
+
   const handleLogout = (e: React.MouseEvent) => { 
     e.preventDefault();
     e.stopPropagation();
@@ -156,7 +178,7 @@ export default function Dashboard() {
     window.location.replace("/login?out=true"); 
   };
   
-const startLecture = async () => {
+  const startLecture = async () => {
     if (!selectedSubject) return showNotify("يرجى اختيار المادة", "error");
     setLoading(true);
 
@@ -169,21 +191,26 @@ const startLecture = async () => {
     }
     
     const typeLabel = lectureType === 'SECTION' ? '(سكشن)' : lectureType === 'ONLINE' ? '(أونلاين)' : '(محاضرة)';
-    finalTopic = `${finalTopic} ${typeLabel}`;
+    
+    let divLabel = "";
+    if (selectedDivisions.length > 0) {
+        divLabel = ` (شعبة ${selectedDivisions.sort().join('+')})`;
+    }
 
-    // دالة مساعدة لإنشاء المحاضرة
+    finalTopic = `${finalTopic} ${typeLabel}${divLabel}`;
+
     const createLecture = async (lat: number | null, lng: number | null) => {
         try {
             const res = await fetch("/api/lectures", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                // بنبعت الموقع هنا، لو أونلاين هيكون null
                 body: JSON.stringify({ 
                     topic: finalTopic, 
                     type: lectureType, 
                     subjectId: selectedSubject, 
                     electiveName: electiveName, 
                     lat, 
-                    lng 
+                    lng,
+                    allowedDivisions: selectedDivisions.length > 0 ? selectedDivisions : null 
                 })
             });
             const data = await res.json();
@@ -191,21 +218,17 @@ const startLecture = async () => {
                 setCurrentLecture(data); 
                 localStorage.setItem("activeLecture", JSON.stringify(data));
                 fetchData(); 
-                // رسالة مختلفة حسب النوع
                 if(lat && lng) showNotify("تم بدء السيشن وحفظ موقع القاعة ✅");
                 else showNotify("تم بدء السيشن الأونلاين (متاح للجميع) 🌍");
-                
                 updateReportData();
             }
         } catch (e) { showNotify("خطأ", "error"); } 
         finally { setLoading(false); }
     };
 
-    // 🔥 هنا الذكاء: لو أونلاين ماتطلبش الموقع وابعت null فوراً 🔥
     if (lectureType === 'ONLINE') {
         createLecture(null, null); 
     } else {
-        // لو محاضرة أو سكشن، لازم نحدد مكانك عشان الطلاب يجوا عندك
         navigator.geolocation.getCurrentPosition(
             (position) => createLecture(position.coords.latitude, position.coords.longitude),
             (error) => { 
@@ -222,26 +245,19 @@ const startLecture = async () => {
   const handleDeleteStudent = async () => { if (!confirmModal.id) return; await fetch(`/api/students?id=${confirmModal.id}`, { method: "DELETE" }); showNotify("تم الحذف"); updateReportData(); setConfirmModal({ isOpen: false, type: null, id: null }); };
   const handleDeleteLecture = async () => { if (!confirmModal.id) return; await fetch(`/api/lectures?id=${confirmModal.id}`, { method: "DELETE" }); showNotify("تم الحذف"); updateReportData(); setConfirmModal({ isOpen: false, type: null, id: null }); };
   
-  // 🔥🔥🔥 التعديل 2: دالة الحفظ الذكية (عشان لو الباسورد فاضي مايبوظش القديم) 🔥🔥🔥
   const handleSaveStudent = async (e: React.FormEvent) => { 
     e.preventDefault(); 
     const method = isEditingStudent ? "PUT" : "POST"; 
-    
-    // بناخد نسخة من البيانات عشان نعدل عليها
     const payload: any = { ...studentForm };
-
-    // لو بنعدل (Edit) وخانة الباسورد فاضية، بنشيلها من البيانات عشان الـ API مايغيرش الباسورد القديم
     if (isEditingStudent && !payload.password) {
         delete payload.password;
     }
-
     try {
         const res = await fetch("/api/students", { 
             method, 
             headers: { "Content-Type": "application/json" }, 
             body: JSON.stringify(payload) 
         });
-        
         if(res.ok) {
             setShowStudentModal(false); 
             updateReportData(); 
@@ -274,51 +290,95 @@ const startLecture = async () => {
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-right overflow-hidden" dir="rtl">
       
-      <style jsx global>{`
-        @media print {
-            @page { size: A4 landscape; margin: 5mm; }
-            
-            aside, .no-print, button, .modal, .sidebar-overlay { display: none !important; }
-            
-            body, main, #__next, div { 
-                overflow: visible !important; 
-                height: auto !important;
-                background-color: white !important;
-            }
+<style jsx global>{`
+  @media print {
+      @page { size: A4 landscape; margin: 5mm; }
+      
+      * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
+      }
 
-            #printable-area {
-                display: block !important;
-                width: 100% !important;
-            }
+      aside, .no-print, button, .modal, .sidebar-overlay { display: none !important; }
+      
+      body, main, #__next, div { 
+          overflow: visible !important; 
+          height: auto !important;
+          background-color: white !important;
+      }
 
-            .page-break {
-                page-break-after: always !important;
-                break-after: page !important;
-                display: block !important;
-                margin-bottom: 20px !important;
-            }
-            .page-break:last-child {
-                page-break-after: auto !important;
-            }
+      #printable-area {
+          display: block !important;
+          width: 100% !important;
+      }
 
-            .print-table {
-                width: 100% !important;
-                border: 2px solid black !important;
-                border-collapse: collapse !important;
-                page-break-inside: avoid !important;
-            }
+      .page-break {
+          page-break-after: always !important;
+          break-after: page !important;
+          display: block !important;
+          margin-bottom: 20px !important;
+      }
 
-            .print-table th, .print-table td {
-                border: 1px solid black !important;
-                padding: 4px !important;
-                color: black !important;
-            }
+      .page-break:last-child {
+          page-break-after: auto !important;
+          break-after: auto !important;
+          margin-bottom: 0 !important;
+      }
 
-            .print-table th { background-color: #f3f4f6 !important; }
-            .check-mark { color: black !important; }
-        }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-      `}</style>
+      /* تنسيق الجدول (الشبكة) */
+      .print-table {
+          width: 100% !important;
+          border-collapse: collapse !important;
+          border: 2px solid #000 !important;
+      }
+
+      /* حدود الخلايا */
+      .print-table th, .print-table td {
+          border: 1px solid #000 !important;
+          padding: 2px !important;
+          color: black !important;
+          text-align: center !important;
+      }
+      
+      /* محاذاة اسم الطالب */
+      .print-table th:nth-child(2), .print-table td:nth-child(2) {
+          text-align: right !important;
+          padding-right: 8px !important;
+      }
+
+      /* ألوان الهيدر (أزرق) */
+      .print-table th { 
+          background-color: #dbeafe !important;
+          color: #172554 !important;
+          vertical-align: middle !important;
+          height: 45px !important;
+      }
+
+      /* إلغاء أي خلفيات أو حدود داخلية للعناصر جوه الهيدر */
+      .print-table th div, .print-table th span {
+          background-color: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+      }
+
+      /* تنسيق نص التاريخ */
+      .print-table th span:last-child {
+          font-weight: 800 !important;
+          font-size: 11px !important;
+          color: #172554 !important;
+          margin-top: 2px !important;
+      }
+      
+      /* الصفوف المخططة */
+      .print-table tr:nth-child(even) td {
+          background-color: #eff6ff !important;
+      }
+      
+      .check-mark { color: #1e3a8a !important; font-weight: bold; }
+  }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+`}</style>
 
       {notification && (<div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-5 no-print ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'} text-white`}>{notification.type === 'success' ? <CheckCircle size={20}/> : <AlertCircle size={20}/>}<span className="font-bold">{notification.message}</span></div>)}
       
@@ -348,9 +408,27 @@ const startLecture = async () => {
                         {!currentLecture ? (
                             <div className="space-y-6">
                                 <div className="flex items-center gap-2 mb-2"><BookOpen className="text-blue-600"/><h2 className="text-2xl font-bold">إعداد سيشن جديد</h2></div>
+                                
                                 <div><label className="text-xs font-bold text-gray-500 mb-2 block">1. اختر الفصل الدراسي</label><div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">{["6", "7", "8"].map(term => (<button key={term} onClick={() => setSelectedTerm(term)} className={`flex-1 min-w-[80px] py-3 rounded-lg border font-bold transition text-sm ${selectedTerm === term ? "bg-slate-800 text-white border-slate-800 shadow-md" : "bg-white text-gray-500 hover:bg-gray-50"}`}>تيرم {term}</button>))}</div></div>
+                                
                                 <div><label className="text-xs font-bold text-gray-500 mb-2 block">2. نوع السيشن</label><div className="grid grid-cols-3 gap-2"><button onClick={() => setLectureType("PHYSICAL")} className={`p-3 rounded-xl border text-sm font-bold transition ${lectureType === "PHYSICAL" ? "bg-blue-100 text-blue-700 border-blue-500 shadow-sm" : "hover:bg-gray-50 text-gray-600"}`}>محاضرة</button><button onClick={() => setLectureType("SECTION")} className={`p-3 rounded-xl border text-sm font-bold transition ${lectureType === "SECTION" ? "bg-purple-100 text-purple-700 border-purple-500 shadow-sm" : "hover:bg-gray-50 text-gray-600"}`}>سكشن</button><button onClick={() => setLectureType("ONLINE")} className={`p-3 rounded-xl border text-sm font-bold transition ${lectureType === "ONLINE" ? "bg-green-100 text-green-700 border-green-500 shadow-sm" : "hover:bg-gray-50 text-gray-600"}`}>أونلاين</button></div></div>
-                                <div><label className="text-xs font-bold text-gray-500 mb-2 block">3. اختر المقرر الدراسي</label><div className="relative"><select className="w-full p-4 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 appearance-none font-medium" value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)}><option value="">-- اختر المادة --</option>{filteredSubjectsQR.map(sub => (<option key={sub.id} value={sub.id}>{sub.name}</option>))}</select><div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400"><ChevronRight className="rotate-90" size={20}/></div></div>{lectureType === "SECTION" && filteredSubjectsQR.length === 0 && (<div className="flex items-center gap-2 mt-3 text-red-600 bg-red-50 p-3 rounded-xl text-sm font-bold border border-red-100"><AlertCircle size={18}/> لا توجد مواد عملية مسجلة لهذا الترم</div>)}</div>
+                                
+                                {lectureType === "SECTION" && (
+                                    <div className="animate-in fade-in slide-in-from-top-2">
+                                        <label className="text-xs font-bold text-gray-500 mb-2 block">3. تحديد الشعب (للسكاشن)</label>
+                                        <div className="flex flex-wrap gap-2">
+                                            <button onClick={()=>setSelectedDivisions([])} className={`px-4 py-2 rounded-lg border text-xs font-bold transition ${selectedDivisions.length === 0 ? "bg-slate-800 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>الكل</button>
+                                            {["1", "2", "3", "4", "5", "6"].map(div => (
+                                                <button key={div} onClick={()=>toggleDivision(div)} className={`w-10 h-10 rounded-lg border text-xs font-bold transition flex items-center justify-center ${selectedDivisions.includes(div) ? "bg-blue-600 text-white shadow-md border-blue-600" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                                                    {div}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <p className="text-[10px] text-gray-400 mt-2 font-medium">{selectedDivisions.length > 0 ? `سيتم قبول الحضور من الشعب: ${selectedDivisions.sort().join(" + ")} فقط` : "مسموح لجميع الشعب بالحضور"}</p>
+                                    </div>
+                                )}
+
+                                <div><label className="text-xs font-bold text-gray-500 mb-2 block">4. اختر المقرر الدراسي</label><div className="relative"><select className="w-full p-4 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 appearance-none font-medium" value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)}><option value="">-- اختر المادة --</option>{filteredSubjectsQR.map(sub => (<option key={sub.id} value={sub.id}>{sub.name}</option>))}</select><div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400"><ChevronRight className="rotate-90" size={20}/></div></div>{lectureType === "SECTION" && filteredSubjectsQR.length === 0 && (<div className="flex items-center gap-2 mt-3 text-red-600 bg-red-50 p-3 rounded-xl text-sm font-bold border border-red-100"><AlertCircle size={18}/> لا توجد مواد عملية مسجلة لهذا الترم</div>)}</div>
                                 {isSelectedElectiveQR && (<div className="animate-in fade-in slide-in-from-top-2"><label className="text-xs font-bold text-blue-600 mb-2 block">اسم المقرر الاختياري</label><input type="text" className="w-full p-4 bg-blue-50 border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="اكتب اسم المقرر هنا..." value={electiveName} onChange={(e) => setElectiveName(e.target.value)}/></div>)}
                                 <button onClick={startLecture} disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-slate-800 transition transform active:scale-[0.99] disabled:opacity-50 mt-4">{loading ? "جاري الإنشاء..." : "إنشاء الرمز (QR)"}</button>
                             </div>
@@ -371,6 +449,15 @@ const startLecture = async () => {
                         </div>
                         <div className="flex flex-col md:flex-row flex-wrap justify-center xl:justify-end gap-3 w-full xl:w-auto">
                             <select className="bg-gray-50 border rounded-lg px-3 py-2 text-sm font-bold outline-none cursor-pointer w-full md:w-auto" value={reportTerm} onChange={e => { setReportTerm(e.target.value); setReportSubject(""); }}><option value="6">تيرم 6</option><option value="7">تيرم 7</option><option value="8">تيرم 8</option></select>
+                            
+                            {/* 🔥🔥🔥 الفلتر الجديد (مجموعات الشعب) 🔥🔥🔥 */}
+                            <select className="bg-orange-50 border-orange-200 text-orange-800 border rounded-lg px-3 py-2 text-sm font-bold outline-none cursor-pointer w-full md:w-auto" value={reportDivisionGroup} onChange={e => setReportDivisionGroup(e.target.value)}>
+                                <option value="ALL">كل الشعب</option>
+                                <option value="1-2">شعبة 1 & 2</option>
+                                <option value="3-4">شعبة 3 & 4</option>
+                                <option value="5-6">شعبة 5 & 6</option>
+                            </select>
+
                             <select className="bg-gray-50 border rounded-lg px-3 py-2 text-sm font-bold outline-none w-full md:min-w-[200px] cursor-pointer" value={reportSubject} onChange={e => setReportSubject(e.target.value)}><option value="">-- اختر المادة --</option>{filteredSubjectsReport.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}</select>
                             <select className="bg-indigo-50 border-indigo-200 text-indigo-800 border rounded-lg px-3 py-2 text-sm font-bold outline-none cursor-pointer w-full md:w-auto" value={reportType} onChange={e => setReportType(e.target.value)}><option value="ALL">عرض الكل</option><option value="PHYSICAL">محاضرات نظرية</option><option value="SECTION">سكاشن عملية</option></select>
                             <div className="flex gap-2 w-full md:w-auto">
@@ -383,59 +470,72 @@ const startLecture = async () => {
                     <div id="printable-area" className="p-4 md:p-8 min-h-[400px] print:p-0 print:overflow-visible">
                         {!reportSubject ? (
                             <div className="text-center py-20 text-gray-400 bg-white no-print"><Filter size={60} className="mx-auto mb-4 opacity-20"/><p className="text-xl font-bold opacity-50">يرجى اختيار المادة</p></div>
-                        ) : groupedStudents.length === 0 ? (
-                            <div className="text-center p-10 text-gray-400 font-bold bg-gray-50 rounded-2xl no-print">لا يوجد طلاب</div>
+                        ) : filteredGroupedStudents.length === 0 ? (
+                            <div className="text-center p-10 text-gray-400 font-bold bg-gray-50 rounded-2xl no-print">لا يوجد طلاب في هذه المجموعة</div>
                         ) : (
-                            groupedStudents.map((group) => {
+                            // 🔥🔥🔥 استخدام filteredGroupedStudents بدلاً من groupedStudents 🔥🔥🔥
+                            filteredGroupedStudents.map((group) => {
                                 const ledgerTitle = reportType === "SECTION" ? "سجل حضور السكاشن العملية" : reportType === "PHYSICAL" ? "سجل حضور المحاضرات النظرية" : "سجل الحضور الشامل";
+                                const groupLectures = allSubjectLectures.filter(lec => {
+                                    if (!lec.allowedDivisions) return true;
+                                    return lec.allowedDivisions.split(',').includes(String(group.division));
+                                });
+
                                 return (
                                     <div key={group.division} className="page-break w-full block clear-both mb-10 print:mb-0">
                                         <div className="pb-2 border-b-2 border-black mb-4">
                                             <h1 className="text-xl font-extrabold mb-1 text-center md:text-right">{ledgerTitle}</h1>
                                             <h2 className="text-lg font-bold mb-1 text-slate-700 text-center md:text-right">{subjects.find(s=>s.id === reportSubject)?.name}</h2>
-                                            <div className="flex justify-between px-2 md:px-10 text-sm font-bold border-t border-black pt-1 mt-1"><span>الشعبة: {group.division}</span><span>الفصل الدراسي: {reportTerm}</span><span>عدد الجلسات المسجلة: {allSubjectLectures.length}</span></div>
+                                            <div className="flex justify-between px-2 md:px-10 text-sm font-bold border-t border-black pt-1 mt-1"><span>الشعبة: {group.division}</span><span>الفصل الدراسي: {reportTerm}</span><span>عدد الجلسات المسجلة: {groupLectures.length}</span></div>
                                         </div>
                                         
                                         <div className="w-full pb-4 print:pb-0 overflow-x-auto print:overflow-visible">
                                             <table className="print-table w-full border-collapse border-slate-200" dir="rtl">
-                                                <thead>
-                                                    <tr className="bg-slate-100 print:bg-gray-200">
-                                                        <th className="border p-1 w-12 text-xs bg-slate-200 align-middle">م</th>
-                                                        <th className="border p-1 text-right w-48 min-w-[150px] align-middle">اسم الطالب</th>
-                                                        
-                                                        {Array.from({ length: 16 }).map((_, i) => {
-                                                            const lec = allSubjectLectures[i];
-                                                            return (
-                                                                <th key={i} className="border p-0.5 w-10 relative align-bottom group">
-                                                                    {lec ? (
-                                                                        <>
-                                                                            <div className="relative no-print flex justify-center mb-1">
-                                                                                <button onClick={(e) => toggleMenu(e, lec.id)} className="p-1 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition"><MoreVertical size={16} /></button>
-                                                                                {activeMenuId === lec.id && (
-                                                                                    <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px] animate-in fade-in zoom-in duration-200">
-                                                                                        <button onClick={(e) => { e.stopPropagation(); setEditLectureForm({id: lec.id, topic: lec.topic, date: lec.date.split('T')[0]}); setShowEditLectureModal(true); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"><Edit size={14}/> تعديل</button>
-                                                                                        <button onClick={(e) => { e.stopPropagation(); setConfirmModal({isOpen: true, type: 'LECTURE', id: lec.id}); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"><Trash2 size={14}/> حذف</button>
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                            <div className="flex flex-col items-center justify-end h-auto py-1">
-                                                                                <span className="text-[8px] font-bold text-gray-500 mb-1 no-print">{reportType === "ALL" && (lec.type === "SECTION" ? "(س)" : "(م)")}</span>
-                                                                                <span className="text-[10px] font-bold text-center leading-tight whitespace-nowrap">{new Date(lec.date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' })}</span>
-                                                                            </div>
-                                                                        </>
-                                                                    ) : <span className="block h-8"></span>}
-                                                                </th>
-                                                            );
-                                                        })}
-                                                    </tr>
-                                                </thead>
+<thead>
+    <tr className="bg-slate-100 print:bg-blue-100">
+        <th className="border p-1 w-12 text-xs align-middle">رقم الكشف</th>
+        <th className="border p-1 text-right w-48 min-w-[150px] align-middle">اسم الطالب</th>
+        
+        {Array.from({ length: 16 }).map((_, i) => {
+            const lec = groupLectures[i];
+            return (
+                <th key={i} className="border p-0.5 w-10 align-middle group relative">
+                    {lec ? (
+                        <div className="flex flex-col items-center justify-center w-full h-full min-h-[35px]">
+                            {/* أزرار التعديل (مخفية في الطباعة) */}
+                            <div className="absolute top-0 right-0 left-0 flex justify-center -mt-2 no-print z-10">
+                                <button onClick={(e) => toggleMenu(e, lec.id)} className="p-1 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition"><MoreVertical size={14} /></button>
+                                {activeMenuId === lec.id && (
+                                    <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px]">
+                                        <button onClick={(e) => { e.stopPropagation(); setEditLectureForm({id: lec.id, topic: lec.topic, date: lec.date.split('T')[0]}); setShowEditLectureModal(true); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"><Edit size={14}/> تعديل</button>
+                                        <button onClick={(e) => { e.stopPropagation(); setConfirmModal({isOpen: true, type: 'LECTURE', id: lec.id}); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-[10px] font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"><Trash2 size={14}/> حذف</button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* نوع المحاضرة/الشعبة */}
+                            <span className="text-[8px] font-bold text-gray-500 mb-0.5 no-print">
+                                {lec.allowedDivisions ? `(ش${lec.allowedDivisions})` : '(عام)'}
+                            </span>
+                            
+                            {/* 🔥 التاريخ (عربي ومسنتر) */}
+                            <span className="text-[10px] font-bold text-center leading-none">
+                                {new Date(lec.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric' })}
+                            </span>
+                        </div>
+                    ) : <span className="block h-8"></span>}
+                </th>
+            );
+        })}
+    </tr>
+</thead>
                                                 <tbody>
                                                     {group.students.map((student: any) => (
                                                         <tr key={student.id} className="hover:bg-slate-50 print:leading-tight">
                                                             <td className="border p-1 text-center font-bold text-xs bg-slate-50">{student.classNumber || "-"}</td>
                                                             <td className="border p-1 text-right font-medium text-xs whitespace-nowrap px-2">{student.name}</td>
                                                             {Array.from({ length: 16 }).map((_, i) => {
-                                                                const lec = allSubjectLectures[i];
+                                                                const lec = groupLectures[i];
                                                                 const isPresent = lec ? (student.attendance || []).some((a:any) => a.lectureId === lec.id) : false;
                                                                 return (
                                                                     <td key={i} className={`border p-0.5 text-center font-bold text-sm cursor-pointer transition select-none ${isPresent ? 'bg-black text-white print:bg-transparent print:text-black' : ''}`} onClick={() => lec && toggleAttendance(student.id, lec.id, isPresent)}>{isPresent ? "✔" : ""}</td>
@@ -492,15 +592,13 @@ const startLecture = async () => {
                                                    <button onClick={(e) => toggleMenu(e, `student-${s.id}`)} className="p-2 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition"><MoreVertical size={18}/></button>
                                                    {activeMenuId === `student-${s.id}` && (
                                                        <div className="absolute top-8 left-1/2 -translate-x-1/2 z-[100] bg-white border border-gray-200 shadow-xl rounded-xl p-1 flex flex-col gap-1 min-w-[120px] animate-in fade-in zoom-in duration-200">
-                                                           {/* 🔥🔥🔥 التعديل 1: زر التعديل (بيفضي الباسورد) 🔥🔥🔥 */}
                                                            <button onClick={(e)=>{ 
                                                                e.stopPropagation(); 
-                                                               setStudentForm({ ...s, password: "" }); // <--- هنا السر!
+                                                               setStudentForm({ ...s, password: "" }); 
                                                                setIsEditingStudent(true); 
                                                                setShowStudentModal(true); 
                                                                setActiveMenuId(null); 
                                                            }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition"><Edit size={14}/> تعديل</button>
-                                                           
                                                            <button onClick={(e)=>{ e.stopPropagation(); setConfirmModal({isOpen: true, type: 'STUDENT', id: s.id}); setActiveMenuId(null); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition"><Trash2 size={14}/> حذف</button>
                                                        </div>
                                                    )}

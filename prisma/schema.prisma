@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql" 
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -15,34 +15,36 @@ model User {
   role        Role         @default(STUDENT)
   division    String?      // الشعبة
   classNumber String?      // رقم الكشف
-  image       String?      // 🔥 ضفنا دي (رابط الصورة)
+  image       String?
   attendance  Attendance[]
 }
 
 model Subject {
   id         String    @id @default(uuid())
-  name       String    // اسم المقرر
-  code       String?   // الكود
-  term       String    // الترم
+  name       String
+  code       String?
+  term       String
   isElective Boolean   @default(false)
-  hasSection Boolean   @default(false) 
-  hasLecture Boolean   @default(true)  // 🔥 (جديد) لازم تضيف السطر ده
+  hasSection Boolean   @default(false)
+  hasLecture Boolean   @default(true)
   lectures   Lecture[]
 }
 
 model Lecture {
-  id        String   @id @default(uuid())
-  topic     String   
-  type      LectureType  @default(PHYSICAL) 
-  date      DateTime     @default(now())
-  qrCode    String       @default("")
+  id        String      @id @default(uuid())
+  topic     String
+  type      LectureType @default(PHYSICAL)
+  date      DateTime    @default(now())
+  qrCode    String      @default("")
   
-  // 🔥 الحقول الجديدة 🔥
-  lat       Float?   
-  lng       Float?   
+  lat       Float?
+  lng       Float?
+  
+  // 🔥 الحقل الجديد: لتخزين الشعب المسموح لها (نص مفصول بفاصلة مثل "1,3")
+  allowedDivisions String? 
 
-  subjectId  String?
-  subject    Subject?     @relation(fields: [subjectId], references: [id])
+  subjectId String?
+  subject   Subject?    @relation(fields: [subjectId], references: [id])
   attendance Attendance[]
 }
 
@@ -55,7 +57,6 @@ model Attendance {
   scanTime  DateTime @default(now())
   status    Status   @default(PRESENT)
 
-  // منع تكرار نفس الطالب في نفس المحاضرة
   @@unique([userId, lectureId])
 }
 
@@ -70,7 +71,7 @@ enum Status {
 }
 
 enum LectureType {
-  PHYSICAL 
-  ONLINE   
-  SECTION  
+  PHYSICAL
+  ONLINE
+  SECTION
 }
