@@ -239,7 +239,28 @@ export default function Dashboard() {
     }
   };
 
-  const endLectureSession = () => { setCurrentLecture(null); setElectiveName(""); localStorage.removeItem("activeLecture"); };
+// ابحث عن دالة endLectureSession واستبدلها بالكود ده:
+
+const endLectureSession = async () => {
+    if (currentLecture?.id) {
+        // إرسال طلب للسيرفر لقفل المحاضرة
+        try {
+            await fetch("/api/lectures", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: currentLecture.id, status: "ENDED" })
+            });
+            showNotify("تم إغلاق باب التسجيل للمحاضرة 🔒");
+        } catch (e) {
+            console.error("Failed to close lecture");
+        }
+    }
+    
+    // تنظيف الواجهة
+    setCurrentLecture(null);
+    setElectiveName("");
+    localStorage.removeItem("activeLecture");
+};
   const handleCreateManualLecture = async (e: React.FormEvent) => { e.preventDefault(); if (!reportSubject) return; const subjectObj = subjects.find(s => s.id === reportSubject); let finalTopic = subjectObj?.name; const typeLabel = manualLectureForm.type === 'SECTION' ? '(سكشن)' : manualLectureForm.type === 'ONLINE' ? '(أونلاين)' : '(محاضرة)'; if (manualLectureForm.topic) finalTopic = manualLectureForm.topic; else finalTopic = `${finalTopic} ${typeLabel}`; try { const res = await fetch("/api/lectures", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic: finalTopic, type: manualLectureForm.type, subjectId: reportSubject, date: manualLectureForm.date }) }); if (res.ok) { showNotify("تم الإضافة ✅"); setShowManualLectureModal(false); updateReportData(); } } catch (e) { showNotify("خطأ", "error"); } };
   const handleUpdateLecture = async (e: React.FormEvent) => { e.preventDefault(); try { const res = await fetch("/api/lectures", { method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(editLectureForm) }); if(res.ok) { showNotify("تم التعديل"); setShowEditLectureModal(false); updateReportData(); } } catch(e) { showNotify("خطأ", "error"); } };
   const handleDeleteStudent = async () => { if (!confirmModal.id) return; await fetch(`/api/students?id=${confirmModal.id}`, { method: "DELETE" }); showNotify("تم الحذف"); updateReportData(); setConfirmModal({ isOpen: false, type: null, id: null }); };

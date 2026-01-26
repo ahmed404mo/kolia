@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    // 🔥 استقبلنا allowedDivisions (مصفوفة)
     const { topic, type, subjectId, date, electiveName, lat, lng, allowedDivisions } = body; 
 
     const subject = await prisma.subject.findUnique({
@@ -31,8 +30,8 @@ export async function POST(req: Request) {
         qrCode: `LEC-${crypto.randomUUID()}`,
         lat: type !== "ONLINE" ? lat : null,
         lng: type !== "ONLINE" ? lng : null,
-        // 🔥 تحويل مصفوفة الشعب لنص مفصول بفاصلة (مثلاً "1,2") للحفظ
         allowedDivisions: allowedDivisions && allowedDivisions.length > 0 ? allowedDivisions.join(",") : null,
+        isActive: true, // افتراضي
       },
     });
 
@@ -46,8 +45,18 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
     try {
         const body = await req.json();
-        const { id, topic, date } = body;
         
+        // 🔥 منطق إغلاق المحاضرة 🔥
+        if (body.status === "ENDED") {
+            const lecture = await prisma.lecture.update({
+                where: { id: body.id },
+                data: { isActive: false }
+            });
+            return NextResponse.json(lecture);
+        }
+
+        // التعديل العادي
+        const { id, topic, date } = body;
         const lecture = await prisma.lecture.update({
             where: { id },
             data: { 
