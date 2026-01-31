@@ -17,6 +17,8 @@ model User {
   classNumber String?      // رقم الكشف
   image       String?
   attendance  Attendance[]
+
+  personalTasks PersonalTask[]
 }
 
 model Subject {
@@ -60,7 +62,23 @@ model Attendance {
 
   @@unique([userId, lectureId])
 }
+model PersonalTask {
+  id        String   @id @default(uuid())
+  title     String
+  isDone    Boolean  @default(false)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
 
+model GlobalTask {
+  id        String   @id @default(uuid())
+  title     String
+  link      String?
+  image     String?
+  category  String   @default("NEWS") // 🔥 "NEWS" or "TASK"
+  createdAt DateTime @default(now())
+}
 enum Role {
   ADMIN
   STUDENT

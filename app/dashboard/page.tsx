@@ -4,7 +4,8 @@ import { QRCodeSVG } from "qrcode.react";
 import { 
   Users, QrCode, ChevronRight, FileText, 
   Printer, Plus, Edit, Trash2, X, Menu,
-  CheckCircle, AlertCircle, LogOut, BookOpen, Filter, Settings, RefreshCw, Copy, MoreVertical
+  CheckCircle, AlertCircle, LogOut, BookOpen, Filter, Settings, RefreshCw, Copy, MoreVertical,
+  Megaphone, Upload, Image as ImageIcon, Link as LinkIcon, ListTodo, ClipboardList
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -19,6 +20,7 @@ export default function Dashboard() {
   const [subjects, setSubjects] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [lectures, setLectures] = useState<any[]>([]);
+  const [globalTasks, setGlobalTasks] = useState<any[]>([]); 
   
   // UI States
   const [selectedTerm, setSelectedTerm] = useState("6");
@@ -26,7 +28,7 @@ export default function Dashboard() {
   const [lectureType, setLectureType] = useState("PHYSICAL");
   const [electiveName, setElectiveName] = useState(""); 
   
-  // 🔥 حالة تخزين الشعب المختارة (للـ QR)
+  // حالة تخزين الشعب المختارة (للـ QR)
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
 
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null); 
@@ -40,7 +42,7 @@ export default function Dashboard() {
   const [reportSubject, setReportSubject] = useState("");
   const [reportType, setReportType] = useState("ALL"); 
   
-  // 🔥🔥🔥 فلتر مجموعات الشعب للطباعة (الجديد) 🔥🔥🔥
+  // فلتر مجموعات الشعب للطباعة
   const [reportDivisionGroup, setReportDivisionGroup] = useState("ALL");
 
   // Modals
@@ -52,7 +54,17 @@ export default function Dashboard() {
   const [manualLectureForm, setManualLectureForm] = useState({ topic: "", date: "", type: "PHYSICAL" });
   const [showEditLectureModal, setShowEditLectureModal] = useState(false);
   const [editLectureForm, setEditLectureForm] = useState({ id: "", topic: "", date: "" });
-  const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, type: 'STUDENT' | 'LECTURE' | null, id: string | null}>({ isOpen: false, type: null, id: null });
+  const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, type: 'STUDENT' | 'LECTURE' | 'TASK' | null, id: string | null}>({ isOpen: false, type: null, id: null });
+
+  // 🔥🔥🔥 Modal & States الأخبار والمهام 🔥🔥🔥
+  const [showGlobalModal, setShowGlobalModal] = useState(false);
+  const [modalType, setModalType] = useState<'NEWS' | 'TASK'>('NEWS'); // لتحديد نوع المودال (خبر أم مهمة)
+  const [isEditingTask, setIsEditingTask] = useState(false);
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  
+  const [globalText, setGlobalText] = useState("");
+  const [globalLink, setGlobalLink] = useState(""); 
+  const [globalImage, setGlobalImage] = useState(""); // صورة (base64 أو رابط)
 
   useEffect(() => {
     const handleResize = () => {
@@ -86,6 +98,12 @@ export default function Dashboard() {
             const data = await subRes.json();
             setSubjects(Array.isArray(data) ? data : []);
         }
+        // 🔥 جلب المهام والأخبار
+        const tasksRes = await fetch("/api/tasks?type=GLOBAL_ALL");
+        if(tasksRes.ok) {
+            const tasksData = await tasksRes.json();
+            setGlobalTasks(Array.isArray(tasksData) ? tasksData : []);
+        }
         updateReportData();
     } catch (e) { console.error(e); }
   };
@@ -105,7 +123,7 @@ export default function Dashboard() {
     fetchData();
     const savedLecture = localStorage.getItem("activeLecture");
     if (savedLecture) { try { setCurrentLecture(JSON.parse(savedLecture)); } catch (e) { localStorage.removeItem("activeLecture"); } }
-    const interval = setInterval(updateReportData, 2000); 
+    const interval = setInterval(updateReportData, 5000); 
     return () => clearInterval(interval);
   }, []);
 
@@ -156,7 +174,6 @@ export default function Dashboard() {
         .sort((a, b) => parseInt(a.classNumber || "0") - parseInt(b.classNumber || "0"))
   })).filter(g => g.students.length > 0);
 
-  // 🔥🔥🔥 تصفية المجموعات بناءً على الفلتر الجديد (1-2، 3-4، 5-6) 🔥🔥🔥
   const filteredGroupedStudents = groupedStudents.filter(g => {
       if (reportDivisionGroup === "ALL") return true;
       const targetDivisions = reportDivisionGroup.split("-"); // يحول "1-2" إلى ["1", "2"]
@@ -239,11 +256,8 @@ export default function Dashboard() {
     }
   };
 
-// ابحث عن دالة endLectureSession واستبدلها بالكود ده:
-
-const endLectureSession = async () => {
+  const endLectureSession = async () => {
     if (currentLecture?.id) {
-        // إرسال طلب للسيرفر لقفل المحاضرة
         try {
             await fetch("/api/lectures", {
                 method: "PUT",
@@ -256,11 +270,11 @@ const endLectureSession = async () => {
         }
     }
     
-    // تنظيف الواجهة
     setCurrentLecture(null);
     setElectiveName("");
     localStorage.removeItem("activeLecture");
-};
+  };
+
   const handleCreateManualLecture = async (e: React.FormEvent) => { e.preventDefault(); if (!reportSubject) return; const subjectObj = subjects.find(s => s.id === reportSubject); let finalTopic = subjectObj?.name; const typeLabel = manualLectureForm.type === 'SECTION' ? '(سكشن)' : manualLectureForm.type === 'ONLINE' ? '(أونلاين)' : '(محاضرة)'; if (manualLectureForm.topic) finalTopic = manualLectureForm.topic; else finalTopic = `${finalTopic} ${typeLabel}`; try { const res = await fetch("/api/lectures", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic: finalTopic, type: manualLectureForm.type, subjectId: reportSubject, date: manualLectureForm.date }) }); if (res.ok) { showNotify("تم الإضافة ✅"); setShowManualLectureModal(false); updateReportData(); } } catch (e) { showNotify("خطأ", "error"); } };
   const handleUpdateLecture = async (e: React.FormEvent) => { e.preventDefault(); try { const res = await fetch("/api/lectures", { method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(editLectureForm) }); if(res.ok) { showNotify("تم التعديل"); setShowEditLectureModal(false); updateReportData(); } } catch(e) { showNotify("خطأ", "error"); } };
   const handleDeleteStudent = async () => { if (!confirmModal.id) return; await fetch(`/api/students?id=${confirmModal.id}`, { method: "DELETE" }); showNotify("تم الحذف"); updateReportData(); setConfirmModal({ isOpen: false, type: null, id: null }); };
@@ -291,6 +305,89 @@ const endLectureSession = async () => {
     }
   };
 
+  // 🔥🔥🔥 دوال إدارة المهام والأخبار (الجديدة) 🔥🔥🔥
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          if (file.size > 2 * 1024 * 1024) { showNotify("حجم الصورة كبير جداً (أقصى حد 2MB)", "error"); return; }
+          const reader = new FileReader();
+          reader.onloadend = () => setGlobalImage(reader.result as string);
+          reader.readAsDataURL(file);
+      }
+  };
+
+  const handleCreateOrUpdateGlobal = async (e: React.FormEvent) => {
+      e.preventDefault();
+      
+      // التحقق من المدخلات
+      if(!globalText.trim() && !globalImage) { 
+          showNotify("يجب إضافة نص أو صورة", "error"); 
+          return; 
+      }
+      
+      const btn = document.getElementById("pub-btn") as HTMLButtonElement;
+      if(btn) { btn.disabled = true; btn.innerText = "جاري..."; }
+
+      const method = isEditingTask ? 'PUT' : 'POST';
+      const body = {
+          id: currentTaskId,
+          title: globalText,
+          type: 'GLOBAL',
+          link: modalType === 'NEWS' ? (globalLink || null) : null, // اللينك للأخبار بس
+          image: modalType === 'NEWS' ? (globalImage || null) : null, // الصورة للأخبار بس
+          category: modalType // 🔥 NEWS or TASK
+      };
+
+      try {
+          const res = await fetch('/api/tasks', { 
+              method, 
+              headers: {'Content-Type': 'application/json'}, 
+              body: JSON.stringify(body) 
+          });
+          
+          if(res.ok) {
+              setGlobalText(""); setGlobalLink(""); setGlobalImage("");
+              setShowGlobalModal(false); setIsEditingTask(false); setCurrentTaskId(null);
+              fetchData(); 
+              showNotify(isEditingTask ? "تم التعديل" : "تم النشر ✅");
+          } else { 
+              const err = await res.json();
+              console.error(err);
+              showNotify("حدث خطأ في الخادم", "error"); 
+          }
+      } catch (e) { showNotify("خطأ في الاتصال", "error"); } 
+      finally { if(btn) { btn.disabled = false; btn.innerText = isEditingTask ? "حفظ" : "نشر"; } }
+  };
+
+  const handleDeleteGlobal = async () => {
+      if(!confirmModal.id) return;
+      try {
+          await fetch(`/api/tasks?id=${confirmModal.id}&type=GLOBAL`, { method: 'DELETE' });
+          setGlobalTasks(prev => prev.filter(t => t.id !== confirmModal.id));
+          showNotify("تم الحذف بنجاح");
+          setConfirmModal({ isOpen: false, type: null, id: null });
+      } catch(e) { showNotify("خطأ في الحذف", "error"); }
+  };
+
+  // فتح المودال للإضافة
+  const openNewModal = (type: 'NEWS' | 'TASK') => {
+      setModalType(type);
+      setGlobalText(""); setGlobalLink(""); setGlobalImage(""); 
+      setIsEditingTask(false); setCurrentTaskId(null);
+      setShowGlobalModal(true);
+  };
+
+  // فتح المودال للتعديل
+  const openEditModal = (item: any) => {
+      setModalType(item.category === 'TASK' ? 'TASK' : 'NEWS');
+      setGlobalText(item.title);
+      setGlobalLink(item.link || "");
+      setGlobalImage(item.image || "");
+      setCurrentTaskId(item.id);
+      setIsEditingTask(true);
+      setShowGlobalModal(true);
+  };
+
   const toggleAttendance = async (studentId: string, lectureId: string, currentStatus: boolean) => {
     const newStatus = !currentStatus;
     setStudents(prev => prev.map(s => {
@@ -307,6 +404,10 @@ const endLectureSession = async () => {
   };
   const handlePrint = () => { window.print(); };
   const toggleMenu = (e: React.MouseEvent, id: string) => { e.stopPropagation(); setActiveMenuId(activeMenuId === id ? null : id); };
+
+  // تقسيم البيانات للعرض
+  const newsItems = globalTasks.filter(t => t.category !== 'TASK');
+  const taskItems = globalTasks.filter(t => t.category === 'TASK');
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-right overflow-hidden" dir="rtl">
@@ -412,7 +513,12 @@ const endLectureSession = async () => {
             <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-slate-700 rounded lg:hidden"><X/></button>
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto overflow-x-hidden">
-            {[{id: "qr", icon: QrCode, label: "إنشاء QR"}, {id: "report", icon: FileText, label: "دفاتر الغياب"}, {id: "students", icon: Users, label: "الطلاب"}].map(item => (
+            {[
+                {id: "qr", icon: QrCode, label: "إنشاء QR"}, 
+                {id: "report", icon: FileText, label: "دفاتر الغياب"}, 
+                {id: "students", icon: Users, label: "الطلاب"},
+                {id: "tasks", icon: Megaphone, label: "الأخبار والمهام"} // 🔥 التاب الجديد
+            ].map(item => (
                 <button key={item.id} onClick={() => { setActiveTab(item.id); if(window.innerWidth < 1024) setSidebarOpen(false); }} className={`flex items-center gap-3 w-full p-3 rounded-xl transition whitespace-nowrap ${activeTab === item.id ? "bg-blue-600" : "hover:bg-slate-800"}`}><item.icon size={22} className="min-w-[22px]"/> <span className={`${!sidebarOpen && "lg:hidden"}`}>{item.label}</span></button>
             ))}
         </nav>
@@ -471,7 +577,6 @@ const endLectureSession = async () => {
                         <div className="flex flex-col md:flex-row flex-wrap justify-center xl:justify-end gap-3 w-full xl:w-auto">
                             <select className="bg-gray-50 border rounded-lg px-3 py-2 text-sm font-bold outline-none cursor-pointer w-full md:w-auto" value={reportTerm} onChange={e => { setReportTerm(e.target.value); setReportSubject(""); }}><option value="6">تيرم 6</option><option value="7">تيرم 7</option><option value="8">تيرم 8</option></select>
                             
-                            {/* 🔥🔥🔥 الفلتر الجديد (مجموعات الشعب) 🔥🔥🔥 */}
                             <select className="bg-orange-50 border-orange-200 text-orange-800 border rounded-lg px-3 py-2 text-sm font-bold outline-none cursor-pointer w-full md:w-auto" value={reportDivisionGroup} onChange={e => setReportDivisionGroup(e.target.value)}>
                                 <option value="ALL">كل الشعب</option>
                                 <option value="1-2">شعبة 1 & 2</option>
@@ -494,7 +599,6 @@ const endLectureSession = async () => {
                         ) : filteredGroupedStudents.length === 0 ? (
                             <div className="text-center p-10 text-gray-400 font-bold bg-gray-50 rounded-2xl no-print">لا يوجد طلاب في هذه المجموعة</div>
                         ) : (
-                            // 🔥🔥🔥 استخدام filteredGroupedStudents بدلاً من groupedStudents 🔥🔥🔥
                             filteredGroupedStudents.map((group) => {
                                 const ledgerTitle = reportType === "SECTION" ? "سجل حضور السكاشن العملية" : reportType === "PHYSICAL" ? "سجل حضور المحاضرات النظرية" : "سجل الحضور الشامل";
                                 const groupLectures = allSubjectLectures.filter(lec => {
@@ -632,14 +736,127 @@ const endLectureSession = async () => {
                    </div>
                 </div>
             )}
+
+            {/* 🔥🔥🔥🔥 صفحة إدارة الأخبار والمهام (الجديدة كلياً) 🔥🔥🔥🔥 */}
+            {activeTab === "tasks" && (
+                <div className="flex flex-col lg:flex-row gap-6 animate-in fade-in no-print pb-10">
+                    
+                    {/* القسم الأيمن: الأخبار */}
+                    <div className="flex-1 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-fit">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Megaphone className="text-indigo-600"/> الأخبار (Ticker)</h2>
+                            <button onClick={() => openNewModal('NEWS')} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-1 shadow-lg shadow-indigo-600/20"><Plus size={16}/> خبر جديد</button>
+                        </div>
+                        <div className="space-y-3">
+                            {newsItems.length === 0 ? <p className="text-center text-gray-400 py-10 bg-gray-50 rounded-2xl border border-dashed text-sm">لا توجد أخبار منشورة</p> : 
+                                newsItems.map(item => (
+                                    <div key={item.id} className="flex gap-3 p-3 border rounded-xl hover:bg-gray-50 group relative transition-all">
+                                        {item.image ? <img src={item.image} alt="news" className="w-12 h-12 rounded-lg object-cover bg-gray-100" /> : <div className="w-12 h-12 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-300"><Megaphone size={20}/></div>}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-bold text-sm text-gray-800 truncate">{item.title}</p>
+                                            {item.link && <p className="text-[10px] text-blue-500 truncate flex items-center gap-1"><LinkIcon size={10}/> {item.link}</p>}
+                                            <p className="text-[9px] text-gray-400 mt-1">{new Date(item.createdAt).toLocaleDateString('ar-EG')}</p>
+                                        </div>
+                                        <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition duration-200">
+                                            <button onClick={() => openEditModal(item)} className="p-1.5 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200"><Edit size={12}/></button>
+                                            <button onClick={() => setConfirmModal({isOpen: true, type: 'TASK', id: item.id})} className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"><Trash2 size={12}/></button>
+                                        </div>
+                                    </div>
+                                ))
+                            }
+                        </div>
+                    </div>
+
+                    {/* القسم الأيسر: المهام العامة */}
+                    <div className="flex-1 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-fit">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><ClipboardList className="text-emerald-600"/> مهام عامة (To-Do)</h2>
+                            <button onClick={() => openNewModal('TASK')} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-emerald-700 flex items-center gap-1 shadow-lg shadow-emerald-600/20"><Plus size={16}/> مهمة جديدة</button>
+                        </div>
+                        <div className="space-y-2">
+                            {taskItems.length === 0 ? <p className="text-center text-gray-400 py-10 bg-gray-50 rounded-2xl border border-dashed text-sm">لا توجد مهام عامة</p> : 
+                                taskItems.map(item => (
+                                    <div key={item.id} className="flex items-center justify-between p-3 border rounded-xl hover:bg-gray-50 group transition-all">
+                                        <div className="flex items-center gap-3">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm"></span>
+                                            <p className="font-bold text-sm text-gray-700">{item.title}</p>
+                                        </div>
+                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition duration-200">
+                                            <button onClick={() => openEditModal(item)} className="p-1.5 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200"><Edit size={14}/></button>
+                                            <button onClick={() => setConfirmModal({isOpen: true, type: 'TASK', id: item.id})} className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"><Trash2 size={14}/></button>
+                                        </div>
+                                    </div>
+                                ))
+                            }
+                        </div>
+                    </div>
+
+                </div>
+            )}
+
         </div>
       </main>
 
-      {/* --- Modals (All Hidden on Print via CSS) --- */}
+      {/* --- Modals --- */}
+      {showGlobalModal && (
+          <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm no-print">
+              <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl animate-in zoom-in">
+                  <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                          <div className={`p-3 rounded-full ${modalType === 'NEWS' ? 'bg-indigo-100 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}>{modalType === 'NEWS' ? <Megaphone size={24}/> : <ClipboardList size={24}/>}</div>
+                          <h3 className="font-bold text-xl">{isEditingTask ? "تعديل" : "إضافة"} {modalType === 'NEWS' ? "خبر" : "مهمة عامة"}</h3>
+                      </div>
+                      <button onClick={()=>setShowGlobalModal(false)}><X size={20} className="text-gray-400 hover:text-gray-600"/></button>
+                  </div>
+                  <form onSubmit={handleCreateOrUpdateGlobal} className="space-y-4">
+                      <div>
+                          <label className="text-xs font-bold block mb-1 text-gray-500">العنوان / النص</label>
+                          <textarea 
+                              className="w-full border p-3 rounded-xl min-h-[80px] outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-medium" 
+                              placeholder={modalType === 'NEWS' ? "اكتب تفاصيل الخبر..." : "اكتب نص المهمة..."}
+                              value={globalText} 
+                              onChange={e => setGlobalText(e.target.value)}
+                          />
+                      </div>
+                      
+                      {/* حقول إضافية للأخبار فقط */}
+                      {modalType === 'NEWS' && (
+                          <>
+                            <div>
+                                <label className="text-xs font-bold block mb-1 text-gray-500">رابط (اختياري)</label>
+                                <input className="w-full border p-3 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="https://..." value={globalLink} onChange={e => setGlobalLink(e.target.value)}/>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold block mb-1 text-gray-500">صورة (اختياري)</label>
+                                <div className="relative mb-2">
+                                    <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
+                                    <div className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-gray-300 p-3 rounded-xl hover:bg-gray-50 transition text-gray-500 text-xs font-bold cursor-pointer hover:border-indigo-400 hover:text-indigo-500"><Upload size={16}/><span>رفع صورة من الجهاز</span></div>
+                                </div>
+                                {globalImage && (
+                                    <div className="mt-2 relative w-full h-32 rounded-xl overflow-hidden border border-gray-200">
+                                        <img src={globalImage} alt="Preview" className="w-full h-full object-cover" />
+                                        <button type="button" onClick={() => setGlobalImage("")} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600 transition"><X size={12}/></button>
+                                    </div>
+                                )}
+                            </div>
+                          </>
+                      )}
+
+                      <div className="flex gap-2 pt-2">
+                          <button type="button" onClick={()=>setShowGlobalModal(false)} className="flex-1 bg-gray-100 py-3 rounded-xl font-bold hover:bg-gray-200 transition text-sm">إلغاء</button>
+                          <button id="pub-btn" type="submit" className={`flex-1 text-white py-3 rounded-xl font-bold transition disabled:opacity-50 text-sm shadow-lg ${modalType === 'NEWS' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'}`}>
+                              {isEditingTask ? "حفظ التعديلات" : "نشر"}
+                          </button>
+                      </div>
+                  </form>
+              </div>
+          </div>
+      )}
+
       {showManualLectureModal && (<div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm no-print"><div className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-2xl animate-in zoom-in"><h3 className="font-bold text-xl mb-4">إضافة عمود يدوي</h3><form onSubmit={handleCreateManualLecture} className="space-y-4"><div><label className="text-sm font-bold block mb-1">نوع الجلسة</label><select className="w-full border p-2 rounded-xl" value={manualLectureForm.type} onChange={e=>setManualLectureForm({...manualLectureForm, type: e.target.value})}><option value="PHYSICAL">محاضرة</option><option value="SECTION">سكشن</option></select></div><div><label className="text-sm font-bold block mb-1">التاريخ</label><input type="date" className="w-full border p-2 rounded-xl" value={manualLectureForm.date} onChange={e=>setManualLectureForm({...manualLectureForm, date: e.target.value})}/></div><div><label className="text-sm font-bold block mb-1">عنوان مخصص (اختياري)</label><input placeholder="مثال: كويز 1" className="w-full border p-2 rounded-xl" value={manualLectureForm.topic} onChange={e=>setManualLectureForm({...manualLectureForm, topic: e.target.value})}/></div><div className="flex gap-2"><button type="button" onClick={()=>setShowManualLectureModal(false)} className="flex-1 bg-gray-100 py-2 rounded-xl">إلغاء</button><button className="flex-1 bg-blue-600 text-white py-2 rounded-xl">إضافة</button></div></form></div></div>)}
       {showEditLectureModal && (<div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm no-print"><div className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-2xl animate-in zoom-in"><h3 className="font-bold text-xl mb-4">تعديل الجلسة</h3><form onSubmit={handleUpdateLecture} className="space-y-4"><div><label className="text-sm font-bold block mb-1">عنوان الجلسة</label><input className="w-full border p-2 rounded-xl" value={editLectureForm.topic} onChange={e=>setEditLectureForm({...editLectureForm, topic: e.target.value})}/></div><div><label className="text-sm font-bold block mb-1">التاريخ</label><input type="date" className="w-full border p-2 rounded-xl" value={editLectureForm.date} onChange={e=>setEditLectureForm({...editLectureForm, date: e.target.value})}/></div><div className="flex gap-2"><button type="button" onClick={()=>setShowEditLectureModal(false)} className="flex-1 bg-gray-100 py-2 rounded-xl">إلغاء</button><button className="flex-1 bg-blue-600 text-white py-2 rounded-xl">حفظ</button></div></form></div></div>)}
       {showStudentModal && (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4 backdrop-blur-sm no-print"><div className="bg-white p-8 rounded-3xl w-full max-w-md animate-in zoom-in duration-200 shadow-2xl"><div className="flex justify-between items-center mb-6"><h3 className="font-bold text-2xl text-slate-800">{isEditingStudent ? "تعديل" : "جديد"}</h3><button onClick={()=>setShowStudentModal(false)}><X size={20}/></button></div><form onSubmit={handleSaveStudent} className="space-y-4"><div><label className="text-sm font-bold text-gray-700">الاسم</label><input required className="w-full border p-3 rounded-xl" value={studentForm.name} onChange={e=>setStudentForm({...studentForm, name:e.target.value})}/></div><div className="flex gap-4"><div className="flex-1"><label className="text-sm font-bold">رقم الكشف</label><input required className="w-full border p-3 rounded-xl" value={studentForm.classNumber} onChange={e=>setStudentForm({...studentForm, classNumber:e.target.value})}/></div><div className="flex-1"><label className="text-sm font-bold">الشعبة</label><select required className="w-full border p-3 rounded-xl" value={studentForm.division} onChange={e=>setStudentForm({...studentForm, division:e.target.value})}><option value="">اختر</option> {[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n}</option>)}</select></div></div><div><label className="text-sm font-bold">الايميل</label><input required className="w-full border p-3 rounded-xl" value={studentForm.email} onChange={e=>setStudentForm({...studentForm, email:e.target.value})}/></div><div><label className="text-sm font-bold">كلمة المرور</label><input required className="w-full border p-3 rounded-xl" value={studentForm.password} onChange={e=>setStudentForm({...studentForm, password:e.target.value})}/></div><button className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold mt-2">حفظ</button></form></div></div>)}
-      {confirmModal.isOpen && (<div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4 backdrop-blur-sm no-print"><div className="bg-white rounded-3xl shadow-2xl p-6 w-[400px] animate-in zoom-in text-center"><h3 className="text-xl font-bold mb-2">{confirmModal.type === 'STUDENT' ? 'حذف الطالب' : 'حذف المحاضرة'}</h3><div className="flex gap-3 mt-6"><button onClick={() => setConfirmModal({isOpen: false, type: null, id: null})} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">إلغاء</button><button onClick={confirmModal.type === 'STUDENT' ? handleDeleteStudent : handleDeleteLecture} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">تأكيد الحذف</button></div></div></div>)}
+      {confirmModal.isOpen && (<div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4 backdrop-blur-sm no-print"><div className="bg-white rounded-3xl shadow-2xl p-6 w-[400px] animate-in zoom-in text-center"><h3 className="text-xl font-bold mb-2">{confirmModal.type === 'TASK' ? 'حذف العنصر' : confirmModal.type === 'STUDENT' ? 'حذف الطالب' : 'حذف المحاضرة'}</h3><div className="flex gap-3 mt-6"><button onClick={() => setConfirmModal({isOpen: false, type: null, id: null})} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">إلغاء</button><button onClick={confirmModal.type === 'TASK' ? handleDeleteGlobal : confirmModal.type === 'STUDENT' ? handleDeleteStudent : handleDeleteLecture} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">تأكيد الحذف</button></div></div></div>)}
     </div>
   );
 }

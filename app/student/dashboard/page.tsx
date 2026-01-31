@@ -4,7 +4,8 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import {
   User, LogOut, Camera, Zap, Edit3, X, RefreshCw, 
   LayoutGrid, ScanLine, BookOpen, CheckCircle2, XCircle, 
-  Calendar, ChevronLeft, Filter, GraduationCap, Code2, AlertCircle
+  Calendar, ChevronLeft, Filter, GraduationCap, Code2, AlertCircle,
+  ListTodo, Trash2, Plus, Megaphone // 🔥 أيقونات جديدة للمهام
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -28,6 +29,11 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
   
+  // 🔥🔥🔥 Tasks & News States 🔥🔥🔥
+  const [personalTasks, setPersonalTasks] = useState<any[]>([]);
+  const [globalTasks, setGlobalTasks] = useState<any[]>([]); // الأخبار والمهام العامة
+  const [newTaskInput, setNewTaskInput] = useState("");
+
   // Avatar States
   const [showAvatarSelector, setShowAvatarSelector] = useState(false);
   const [avatarSeeds, setAvatarSeeds] = useState<string[]>([]);
@@ -50,6 +56,9 @@ export default function StudentDashboard() {
     
     buildFullReport(userData);
     generateRandomAvatars();
+    
+    // 🔥 جلب المهام والأخبار عند التحميل
+    if(userData.id) fetchTasks(userData.id);
   }, []);
 
   const playSuccessSound = () => {
@@ -62,7 +71,66 @@ export default function StudentDashboard() {
     }
   };
 
-  // 🔥🔥 دالة بناء التقرير المعدلة (تتحقق من الشعبة) 🔥🔥
+  // 🔥🔥 دالة تشغيل صوت إنجاز المهمة 🔥🔥
+  const playDoneSound = () => {
+    try {
+        const audio = new Audio('/done.mp3'); 
+        audio.volume = 0.6;
+        audio.play().catch(e => console.error("Audio playback failed", e));
+    } catch (error) { console.error("Error creating audio", error); }
+  };
+
+  // 🔥🔥🔥 دوال إدارة المهام (الجديد) 🔥🔥🔥
+  const fetchTasks = async (userId: string) => {
+      try {
+          const res = await fetch(`/api/tasks?userId=${userId}`);
+          const data = await res.json();
+          setPersonalTasks(data.personal || []);
+          setGlobalTasks(data.global || []);
+      } catch (e) { console.error(e); }
+  };
+
+  const addPersonalTask = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if(!newTaskInput.trim()) return;
+      
+      const tempId = Math.random().toString();
+      const newTask = { id: tempId, title: newTaskInput, isDone: false, userId: user.id };
+      setPersonalTasks([newTask, ...personalTasks]);
+      setNewTaskInput("");
+
+      try {
+          const res = await fetch('/api/tasks', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ title: newTask.title, userId: user.id, type: 'PERSONAL' })
+          });
+          if(res.ok) {
+              const savedTask = await res.json();
+              setPersonalTasks(prev => prev.map(t => t.id === tempId ? savedTask : t));
+              showNotification("تمت الإضافة", "success");
+          }
+      } catch (e) { showNotification("خطأ في الإضافة", "error"); }
+  };
+
+  const toggleTask = async (taskId: string, currentStatus: boolean) => {
+      if (!currentStatus) playDoneSound();
+
+      setPersonalTasks(prev => prev.map(t => t.id === taskId ? {...t, isDone: !currentStatus} : t));
+      
+      await fetch('/api/tasks', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ id: taskId, isDone: !currentStatus })
+      });
+  };
+
+  const deleteTask = async (taskId: string) => {
+      setPersonalTasks(prev => prev.filter(t => t.id !== taskId));
+      await fetch(`/api/tasks?id=${taskId}`, { method: 'DELETE' });
+  };
+
+  // --- دالة التقرير القديمة ---
   const buildFullReport = async (userData: any) => {
     setIsReportLoading(true);
     try {
@@ -88,20 +156,14 @@ export default function StudentDashboard() {
                     const didAttend = attendedLectureIds.has(lecture.id);
                     const isPastOrToday = lectureDate <= now;
 
-                    // 🔥 التحقق: هل المحاضرة مخصصة لشعبة الطالب؟
                     let isForStudent = true;
                     if (lecture.allowedDivisions) {
-                        const allowed = lecture.allowedDivisions.split(','); // ["1", "2"]
-                        // نتأكد إن شعبة الطالب موجودة في القائمة
+                        const allowed = lecture.allowedDivisions.split(',');
                         if (!allowed.includes(String(userData.division))) {
                             isForStudent = false;
                         }
                     }
 
-                    // الشرط المعدل:
-                    // نحسب المحاضرة فقط لو:
-                    // 1. التاريخ فات أو النهاردة
-                    // 2. AND (المحاضرة مخصصة لشعبته OR هو حضرها بالفعل بالغلط)
                     if (isPastOrToday && (isForStudent || didAttend)) {
                         if (isSection) {
                             secTotal++;
@@ -230,6 +292,10 @@ export default function StudentDashboard() {
     window.location.href = "/login?out=true";
   };
 
+  // تقسيم المهام العامة إلى أخبار وتاسكات
+  const newsItems = globalTasks.filter(t => t.category !== 'TASK');
+  const adminTasks = globalTasks.filter(t => t.category === 'TASK');
+
   if (!user || !isClient) return <div className="h-screen bg-black flex items-center justify-center"><div className="w-10 h-10 border-4 border-zinc-800 border-t-white rounded-full animate-spin"></div></div>;
 
   return (
@@ -257,8 +323,37 @@ export default function StudentDashboard() {
         <button onClick={() => setIsEditing(true)} className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition"><Edit3 size={18} className="text-zinc-400" /></button>
       </header>
 
+      {/* 🔥🔥🔥 شريط الأخبار المتحرك (فوق الكل) 🔥🔥🔥 */}
+      {newsItems.length > 0 && (
+        <div className="w-full overflow-hidden bg-gradient-to-r from-indigo-900/80 to-purple-900/80 border-y border-white/10 py-2 relative shadow-lg backdrop-blur-md z-10 mb-2">
+            <div className="flex items-center gap-2 absolute right-0 top-0 bottom-0 px-3 bg-zinc-950/90 z-20 border-l border-white/10 shadow-xl">
+                <Megaphone size={14} className="text-red-500 animate-pulse" />
+                <span className="text-[9px] font-black text-white tracking-widest uppercase">News</span>
+            </div>
+            
+            <div className="marquee-container flex items-center gap-10 min-w-full">
+                {newsItems.map((news, i) => (
+                    <div key={i} className="flex items-center gap-3 shrink-0">
+                        {news.image && (
+                            <img src={news.image} alt="news" className="w-6 h-6 rounded-lg object-cover border border-white/20" />
+                        )}
+                        <span className="text-xs font-bold text-white whitespace-nowrap">{news.title}</span>
+                        {news.link && (
+                            <a href={news.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-300 hover:text-white underline decoration-dotted flex items-center gap-1">
+                                تفاصيل 🔗
+                            </a>
+                        )}
+                        {/* فاصل بين الأخبار */}
+                        <span className="text-white/20 text-lg mx-2">•</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+      )}
+
       <main className="px-5 pb-32 relative z-10 h-full overflow-y-auto scrollbar-hide">
         
+        {/* --- صفحة الداشبورد الرئيسية --- */}
         {activeTab === "dashboard" && (
           <div className="space-y-5 animate-in fade-in zoom-in duration-500">
             <div className="w-full bg-gradient-to-br from-zinc-900/80 to-zinc-900/40 border border-white/10 p-6 rounded-[2.5rem] relative overflow-hidden backdrop-blur-xl">
@@ -349,6 +444,76 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {/* 🔥🔥🔥🔥 صفحة المهام الجديدة 🔥🔥🔥🔥 */}
+        {activeTab === "tasks" && (
+            <div className="space-y-6 animate-in fade-in zoom-in duration-500 pt-4">
+                
+                {/* قسم المهام العامة (من الأدمن) */}
+                {adminTasks.length > 0 && (
+                    <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/20 border border-indigo-500/30 p-5 rounded-[2rem] relative overflow-hidden">
+                        <div className="flex items-center gap-2 mb-4 text-indigo-300">
+                            <ListTodo size={18} />
+                            <h3 className="font-bold text-sm">مهام مطلوبة (عامة)</h3>
+                        </div>
+                        <div className="space-y-2 relative z-10">
+                            {adminTasks.map(task => (
+                                <div key={task.id} className="bg-black/20 p-3 rounded-xl border border-white/5 text-xs text-indigo-100 flex items-start gap-2 backdrop-blur-sm">
+                                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full mt-1.5 shrink-0 shadow-[0_0_10px_currentColor]"/>
+                                    {task.title}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* قسم المهام الخاصة (To-Do List) */}
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between px-2">
+                        <h3 className="font-bold text-xl flex items-center gap-2 text-white"><CheckCircle2 className="text-emerald-500"/> مهامي الخاصة</h3>
+                        <span className="text-[10px] text-zinc-400 bg-zinc-900 border border-zinc-800 px-3 py-1 rounded-full font-bold">
+                            {personalTasks.filter(t=>!t.isDone).length} متبقي
+                        </span>
+                    </div>
+
+                    <form onSubmit={addPersonalTask} className="flex gap-2">
+                        <input 
+                            value={newTaskInput} 
+                            onChange={e=>setNewTaskInput(e.target.value)} 
+                            placeholder="أضف مهمة جديدة..." 
+                            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition text-white placeholder:text-zinc-600 font-medium"
+                        />
+                        <button type="submit" className="bg-emerald-600 w-12 rounded-2xl flex items-center justify-center hover:bg-emerald-500 transition text-white shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+                            <Plus size={22}/>
+                        </button>
+                    </form>
+
+                    <div className="space-y-2 pb-10">
+                        {personalTasks.length === 0 ? (
+                            <div className="text-center py-10 opacity-50 flex flex-col items-center gap-2">
+                                <CheckCircle2 size={40} className="text-zinc-700"/>
+                                <p className="text-zinc-600 text-xs font-bold">لا توجد مهام.. استمتع بوقتك! ☕</p>
+                            </div>
+                        ) : (
+                            personalTasks.map(task => (
+                                <div key={task.id} className={`group flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${task.isDone ? 'bg-zinc-900/30 border-zinc-800/50 opacity-60' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'}`}>
+                                    <div className="flex items-center gap-3 flex-1 cursor-pointer" onClick={() => toggleTask(task.id, task.isDone)}>
+                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.isDone ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-700 group-hover:border-emerald-500/50'}`}>
+                                            {task.isDone && <CheckCircle2 size={14} className="text-black"/>}
+                                        </div>
+                                        <span className={`text-sm font-medium transition-all ${task.isDone ? 'line-through text-zinc-500' : 'text-zinc-200'}`}>{task.title}</span>
+                                    </div>
+                                    <button onClick={() => deleteTask(task.id)} className="w-8 h-8 flex items-center justify-center rounded-full text-zinc-600 hover:text-red-500 hover:bg-red-500/10 transition">
+                                        <Trash2 size={16}/>
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* --- صفحة السكان --- */}
         {activeTab === "scan" && (
             <div className="h-[75vh] flex flex-col items-center justify-center animate-in fade-in slide-in-from-bottom-8 duration-500 relative">
              
@@ -410,9 +575,12 @@ export default function StudentDashboard() {
 
       </main>
 
+      {/* --- شريط التنقل السفلي المعدل (3 أزرار) --- */}
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-full p-2 flex gap-2 shadow-2xl z-50">
         <button onClick={() => setActiveTab("dashboard")} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${activeTab === "dashboard" ? "bg-white text-black shadow-lg scale-110" : "text-zinc-500 hover:bg-white/5"}`}><LayoutGrid size={22} /></button>
         <button onClick={() => setActiveTab("scan")} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${activeTab === "scan" ? "bg-white text-black shadow-lg shadow-white/40 scale-110" : "text-zinc-500 hover:bg-white/5"}`}><ScanLine size={24} /></button>
+        {/* زر المهام الجديد 👇 */}
+        <button onClick={() => setActiveTab("tasks")} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${activeTab === "tasks" ? "bg-white text-black shadow-lg scale-110" : "text-zinc-500 hover:bg-white/5"}`}><ListTodo size={24} /></button>
       </div>
 
       {selectedSubjectDetails && (
@@ -483,14 +651,11 @@ export default function StudentDashboard() {
         </div>
       )}
 
-      <style jsx global>{`
-        @keyframes scanLine {
-          0% { top: 10%; opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { top: 90%; opacity: 0; }
-        }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
+      <style jsx global>{` @keyframes scanLine { 0% { top: 10%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 90%; opacity: 0; } } .scrollbar-hide::-webkit-scrollbar { display: none; } 
+      /* شريط الأخبار */
+      .marquee-container { animation: scroll 25s linear infinite; }
+      @keyframes scroll { 0% { transform: translateX(100vw); } 100% { transform: translateX(-100%); } }
+      .marquee-container:hover { animation-play-state: paused; }
       `}</style>
     </div>
   );
