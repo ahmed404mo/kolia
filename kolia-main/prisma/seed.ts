@@ -1,17 +1,8 @@
 import { PrismaClient, Role } from '@prisma/client'
 const prisma = new PrismaClient()
 
-// دالة مساعدة لتقسيم المصفوفات الكبيرة إلى أجزاء (مثلاً 100 بـ 100)
-function chunkArray<T>(array: T[], size: number): T[][] {
-  const chunked = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunked.push(array.slice(i, i + size));
-  }
-  return chunked;
-}
-
 async function main() {
-  console.log("🌱 جاري تهيئة النظام (إدخال بيانات ضخمة بنظام الدفعات)...");
+  console.log("🌱 جاري تهيئة النظام (بياناتك + سيناريو 2 حضور و 1 غياب)...");
   
   // 1. تنظيف البيانات القديمة
   await prisma.attendance.deleteMany({});
@@ -20,7 +11,7 @@ async function main() {
   await prisma.user.deleteMany({});
 
   // ==========================================
-  // 2. إضافة المواد الدراسية
+  // 2. إضافة المواد الدراسية (كما هي في كودك)
   // ==========================================
   const subjectsData = [
     // ---------------- تيرم 6 ----------------
@@ -54,12 +45,18 @@ async function main() {
     { name: "مقرر اختياري (علوم نفسية)", code: "ELECTIVE_8", term: "8", hasSection: false, hasLecture: true, isElective: true },
   ];
 
-  await prisma.subject.createMany({ data: subjectsData });
-  const createdSubjects = await prisma.subject.findMany(); // جلب المواد بعد إنشائها
+  // حفظ المواد لاستخدامها لاحقاً
+  const createdSubjects = [];
+  for (const subject of subjectsData) {
+    const s = await prisma.subject.create({ data: subject });
+    createdSubjects.push(s);
+  }
 
   // ==========================================
-  // 3. إضافة المستخدمين الأساسيين
+  // 3. إضافة المستخدمين (ببياناتك الخاصة)
   // ==========================================
+  
+  // المسؤول
   await prisma.user.create({
     data: {
       id: "admin-user",
@@ -70,6 +67,7 @@ async function main() {
     }
   });
 
+  // الطالب
   const student = await prisma.user.create({
     data: {
       id: "student-1",
@@ -82,71 +80,58 @@ async function main() {
     }
   });
 
-  // ==========================================
-  // 4. توليد عدد كبير من الطلاب (مثلاً 200 طالب)
-  // ==========================================
-  console.log("⏳ جاري توليد بيانات الطلاب الوهميين...");
-  const TOTAL_DUMMY_STUDENTS = 200; // يمكنك تغيير هذا الرقم لـ 1000 أو أكثر
-  const dummyStudents = [];
+  // ========================================================
+  // 4. سيناريو الاختبار (2 حضور - 1 غياب - 1 غياب اليوم)
+  // ========================================================
   
-  for (let i = 1; i <= TOTAL_DUMMY_STUDENTS; i++) {
-    dummyStudents.push({
-      id: `student-dummy-${i}`,
-      name: `طالب تجريبي ${i}`,
-      email: `student${i}@test.com`,
-      password: "password123",
-      division: "1",
-      classNumber: "1",
-      role: Role.STUDENT
-    });
-  }
-
-  // إدخال الطلاب دفعات (100 في كل دفعة)
-  const studentChunks = chunkArray(dummyStudents, 1000);
-  for (let i = 0; i < studentChunks.length; i++) {
-    await prisma.user.createMany({ data: studentChunks[i] });
-    console.log(`✅ تم إدخال دفعة الطلاب رقم ${i + 1} (${studentChunks[i].length} طالب)`);
-  }
-
-  // ========================================================
-  // 5. إنشاء المحاضرات وتوزيع الحضور والغياب على الجميع
-  // ========================================================
+  // سنطبق السيناريو على مادة "تدريب ميداني 2" (Term 6)
   const targetSubject = createdSubjects.find(s => s.name === "تدريب ميداني 2");
 
   if (targetSubject) {
-      const day1 = new Date(); day1.setDate(day1.getDate() - 10);
-      const day2 = new Date(); day2.setDate(day2.getDate() - 7); 
-      const day3 = new Date(); day3.setDate(day3.getDate() - 3); 
+      const day1 = new Date(); day1.setDate(day1.getDate() - 10); // فات من 10 أيام
+      const day2 = new Date(); day2.setDate(day2.getDate() - 7);  // فات من 7 أيام
+      const day3 = new Date(); day3.setDate(day3.getDate() - 3);  // فات من 3 أيام
+      
+      // محاضرة اليوم (فاتت من ساعتين) -> ستظهر غياب بالأحمر حتى تمسح الكود
       const todayPast = new Date(); todayPast.setHours(todayPast.getHours() - 2);
 
-      // إنشاء 4 محاضرات
-      const lec1 = await prisma.lecture.create({ data: { topic: "مقدمة التدريب", type: "PHYSICAL", date: day1, subjectId: targetSubject.id } });
-      const lec2 = await prisma.lecture.create({ data: { topic: "مهارات التواصل", type: "PHYSICAL", date: day2, subjectId: targetSubject.id } });
-      const lec3 = await prisma.lecture.create({ data: { topic: "كتابة التقارير", type: "PHYSICAL", date: day3, subjectId: targetSubject.id } }); // الكل غياب
-      const lec4 = await prisma.lecture.create({ data: { topic: "محاضرة اليوم (تظهر غياب)", type: "PHYSICAL", date: todayPast, subjectId: targetSubject.id, qrCode: "123" } }); // الكل غياب
+      // 1. محاضرة (حضور)
+      const lec1 = await prisma.lecture.create({ 
+          data: { topic: "مقدمة التدريب", type: "PHYSICAL", date: day1, subjectId: targetSubject.id } 
+      });
+      await prisma.attendance.create({ 
+          data: { userId: student.id, lectureId: lec1.id, status: "PRESENT" } 
+      });
 
-      // تجميع الـ IDs لكل الطلاب (الطالب الأساسي + التجريبيين)
-      const allStudentIds = [student.id, ...dummyStudents.map(s => s.id)];
-      
-      // تجهيز مصفوفة الحضور (حضور في أول محاضرتين للجميع)
-      const attendanceRecords = [];
-      for (const sId of allStudentIds) {
-        attendanceRecords.push({ userId: sId, lectureId: lec1.id, status: "PRESENT" });
-        attendanceRecords.push({ userId: sId, lectureId: lec2.id, status: "PRESENT" });
-      }
+      // 2. محاضرة (حضور)
+      const lec2 = await prisma.lecture.create({ 
+          data: { topic: "مهارات التواصل", type: "PHYSICAL", date: day2, subjectId: targetSubject.id } 
+      });
+      await prisma.attendance.create({ 
+          data: { userId: student.id, lectureId: lec2.id, status: "PRESENT" } 
+      });
 
-      // إدخال بيانات الحضور دفعات (100 بـ 100) لتخفيف الضغط
-      console.log("⏳ جاري تسجيل الحضور لجميع الطلاب...");
-      const attendanceChunks = chunkArray(attendanceRecords, 100);
-      for (let i = 0; i < attendanceChunks.length; i++) {
-        await prisma.attendance.createMany({ data: attendanceChunks[i] });
-      }
-      console.log(`✅ تم تسجيل الحضور بالكامل (${attendanceRecords.length} سجل).`);
+      // 3. محاضرة (غياب قديم) - لن ننشئ لها سجل حضور
+      await prisma.lecture.create({ 
+          data: { topic: "كتابة التقارير", type: "PHYSICAL", date: day3, subjectId: targetSubject.id } 
+      });
+
+      // 4. محاضرة اليوم (غياب حالي) - بكود 123
+      await prisma.lecture.create({ 
+          data: { 
+              topic: "محاضرة اليوم (تظهر غياب)", 
+              type: "PHYSICAL", 
+              date: todayPast, 
+              subjectId: targetSubject.id, 
+              qrCode: "123" 
+          } 
+      });
   }
 
-  console.log(`🎉 انتهت التهيئة بنجاح!`);
-  console.log(`- إجمالي الطلاب في النظام: ${TOTAL_DUMMY_STUDENTS + 1}`);
-  console.log(`- الطالب الخاص بك: mo@gmail.com جاهز للتجربة.`);
+  console.log(`✅ تم تجهيز البيانات:`);
+  console.log(`- المواد: ${subjectsData.length}`);
+  console.log(`- الطالب: mo@gmail.com`);
+  console.log(`- السيناريو: مادة "تدريب ميداني 2" بها 2 حضور، 1 غياب قديم، 1 غياب اليوم (بكود 123).`);
 }
 
 main()

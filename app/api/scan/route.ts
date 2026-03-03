@@ -22,29 +22,23 @@ export async function POST(req: Request) {
   try {
     const { userId, qrCode, lat, lng } = await req.json();
 
-    // 1. البحث عن المحاضرة
-    const lecture = await prisma.lecture.findFirst({
-      where: { qrCode: qrCode }
-    });
+    // 1. 🔥 دمج الاستعلامات (Parallel Fetching) 🔥
+    // بدلاً من الانتظار مرتين، نطلب بيانات المحاضرة والطالب في نفس اللحظة
+    const [lecture, student] = await Promise.all([
+      prisma.lecture.findFirst({ where: { qrCode: qrCode } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { id: true, division: true } }) // جلب الحقول المطلوبة فقط لتخفيف الحمل
+    ]);
 
-    if (!lecture) {
-      return NextResponse.json({ message: "كود غير صالح" }, { status: 404 });
-    }
+    // التحقق من وجود البيانات
+    if (!lecture) return NextResponse.json({ message: "كود غير صالح" }, { status: 404 });
+    if (!student) return NextResponse.json({ message: "بيانات الطالب غير موجودة" }, { status: 404 });
 
-    // 🔥 التحقق الهام: هل المحاضرة ما زالت نشطة؟ 🔥
+    // 2. التحقق من حالة المحاضرة
     if (lecture.isActive === false) {
         return NextResponse.json({ message: "عفواً، تم إغلاق باب التسجيل لهذه المحاضرة." }, { status: 403 });
     }
 
-    // 2. التحقق من الشعبة
-    const student = await prisma.user.findUnique({
-        where: { id: userId }
-    });
-
-    if (!student) {
-        return NextResponse.json({ message: "بيانات الطالب غير موجودة" }, { status: 404 });
-    }
-
+    // 3. التحقق من الشعبة
     if (lecture.allowedDivisions) {
         const allowed = lecture.allowedDivisions.split(",");
         if (!student.division || !allowed.includes(student.division)) {
@@ -54,7 +48,7 @@ export async function POST(req: Request) {
         }
     }
 
-    // 3. التحقق من الموقع الجغرافي
+    // 4. التحقق من الموقع الجغرافي
     if (lecture.type !== 'ONLINE' && lecture.lat && lecture.lng) {
       if (!lat || !lng) {
         return NextResponse.json({ message: "يجب تفعيل الموقع الجغرافي (GPS)" }, { status: 400 });
@@ -70,34 +64,35 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. 🔥🔥 التحقق من التكرار (التعديل هنا) 🔥🔥
-    const existing = await prisma.attendance.findFirst({
-      where: { userId, lectureId: lecture.id }
-    });
+    // 5. 🔥 تسجيل الحضور بذكاء (الاعتماد على الـ Prisma Unique Constraint) 🔥
+    // حذفنا استعلام الـ findFirst للبحث عن التكرار، وسنحاول التسجيل مباشرة.
+    // إذا كان مسجلاً من قبل، سترفض قاعدة البيانات الطلب (Error Code P2002) وسنلتقطها.
+    try {
+        await prisma.attendance.create({
+            data: {
+              userId,
+              lectureId: lecture.id,
+              status: "PRESENT"
+            }
+        });
 
-    if (existing) {
-      // 👇 غيرنا الحالة لـ 409 عشان التطبيق يفهم إنه خطأ ويعرض الرسالة الحمراء
-      return NextResponse.json({ 
-          message: "تم تسجيل الحضور مسبقاً لهذه المحاضرة! ✅" 
-      }, { status: 409 }); 
+        return NextResponse.json({ 
+            message: "Success", 
+            lectureId: lecture.id 
+        });
+
+    } catch (dbError: any) {
+        // P2002 هو كود الخطأ في Prisma عند محاولة تكرار قيمة فريدة (Unique Constraint)
+        if (dbError.code === 'P2002') {
+            return NextResponse.json({ 
+                message: "تم تسجيل الحضور مسبقاً لهذه المحاضرة! ✅" 
+            }, { status: 409 });
+        }
+        throw dbError; // رمي الخطأ ليتم التقاطه في الـ catch الرئيسية إذا لم يكن خطأ تكرار
     }
 
-    // 5. تسجيل الحضور
-    await prisma.attendance.create({
-      data: {
-        userId,
-        lectureId: lecture.id,
-        status: "PRESENT"
-      }
-    });
-
-    return NextResponse.json({ 
-        message: "Success", 
-        lectureId: lecture.id 
-    });
-
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ message: "Error" }, { status: 500 });
+    console.error("Attendance API Error:", error);
+    return NextResponse.json({ message: "حدث خطأ داخلي في الخادم" }, { status: 500 });
   }
 }
