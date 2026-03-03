@@ -56,7 +56,7 @@ export default function RegisterPage() {
       return;
     }
 
-    try {
+try {
       const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -66,8 +66,10 @@ export default function RegisterPage() {
       const data = await res.json();
 
       if (res.ok) {
-        localStorage.setItem("currentUser", JSON.stringify(data.user));
-        window.location.href = "/";
+        const userData = data.user || data; 
+        localStorage.setItem("user", JSON.stringify(userData));
+        
+        window.location.href = "/student/dashboard";
       } else {
         setError(data.message || "حدث خطأ أثناء التسجيل");
       }

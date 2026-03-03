@@ -48,6 +48,7 @@ export const config = {
   matcher: [
     '/dashboard/:path*', 
     '/student/:path*', 
-    '/login'
+    '/login',
+    '/register'
   ],
 };
